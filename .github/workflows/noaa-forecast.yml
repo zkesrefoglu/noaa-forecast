@@ -1,0 +1,54 @@
+name: noaa-forecast
+
+on:
+  schedule:
+    # Every hour at :07. Offset from :00 because NOAA gets hammered at the top
+    # of the hour and GitHub Actions cron is "best effort" anyway.
+    - cron: "7 * * * *"
+  workflow_dispatch: {}
+
+# Don't let two runs step on each other if one is slow.
+concurrency:
+  group: noaa-forecast
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch NOAA snapshot (Washington DC)
+        run: |
+          python noaa_forecast.py \
+            --lat 38.9087 \
+            --lon -77.0189 \
+            --name washington_dc
+
+      - name: Commit snapshot
+        run: |
+          git config user.name  "noaa-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "snapshot $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # Rebase in case something else landed while we were fetching.
+          git pull --rebase --autostash
+          git push

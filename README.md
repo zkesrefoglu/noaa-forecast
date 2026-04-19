@@ -69,6 +69,43 @@ con.execute("""
 con.execute("SELECT * FROM forecast_hourly LIMIT 10").fetchdf()
 ```
 
+## Build the dashboard
+
+An interactive HTML dashboard visualizes current forecast + drift + stability. Single file, self-contained, opens in any browser.
+
+```bash
+python build_dashboard.py
+# writes docs/index.html
+```
+
+Open `docs/index.html` in your browser. The dashboard includes:
+
+- **Current horizon**: latest 7-day hourly forecast (temperature + precip overlay).
+- **Spaghetti drift**: every snapshot's temperature curve overlaid, older ones faded.
+- **Drift heatmap**: per-hour delta vs the most recent prediction — shows where NOAA has been walking back or doubling down.
+- **Stability curve**: forecast spread vs leadtime. The core publishable insight.
+- **Side panels**: precipitation drift + latest wind curve.
+
+Rebuild after every `git pull` to include new snapshots.
+
+### Optional: publish the dashboard as a URL
+
+Enable GitHub Pages from `docs/` on the `main` branch:
+
+1. Repo Settings -> Pages
+2. Source: "Deploy from a branch"
+3. Branch: `main`, folder: `/docs`
+4. Save
+
+The dashboard will be live at `https://zkesrefoglu.github.io/noaa-forecast/` within a minute. To have it self-update after each cron snapshot, add this step to `.github/workflows/noaa-forecast.yml` after the fetch step:
+
+```yaml
+- name: Rebuild dashboard
+  run: python build_dashboard.py
+```
+
+The existing commit step will already pick up the regenerated `docs/index.html`.
+
 ## Add another location later
 
 Edit `.github/workflows/noaa-forecast.yml` and add another step:

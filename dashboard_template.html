@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NOAA Forecast Drift // Washington DC</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Major+Mono+Display&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,400&display=swap" rel="stylesheet">
+
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+
+  <style>
+    :root {
+      /* palette — "oscilloscope telemetry" */
+      --bg:              #07070c;
+      --bg-grid:         #0d0d15;
+      --surface:         #11111a;
+      --surface-hi:      #181822;
+      --border:          #23232f;
+      --border-hi:       #383848;
+      --text:            #e4e4ea;
+      --text-dim:        #9a9aa5;
+      --text-muted:      #606070;
+
+      /* data channels */
+      --amber:           #ffb000;   /* temp */
+      --cyan:            #35d4f0;   /* precip */
+      --violet:          #b794ff;   /* wind */
+      --phosphor:        #6aff8a;   /* ok / stable */
+      --magenta:         #ff5fa8;   /* drift / warning */
+      --ink-amber:       rgba(255, 176,   0, 0.12);
+      --ink-cyan:        rgba( 53, 212, 240, 0.12);
+      --ink-violet:      rgba(183, 148, 255, 0.12);
+
+      /* typography */
+      --font-mono:       'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      --font-display:    'Major Mono Display', var(--font-mono);
+      --font-serif:      'Fraunces', Georgia, serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      background-image:
+        linear-gradient(var(--bg-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px);
+      background-size: 32px 32px;
+      background-position: -1px -1px;
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 14px;
+      line-height: 1.55;
+      min-height: 100vh;
+      padding: 48px 24px 96px;
+      letter-spacing: 0.01em;
+    }
+
+    .container {
+      max-width: 1380px;
+      margin: 0 auto;
+    }
+
+    /* ---------- header ---------- */
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 40px;
+      flex-wrap: wrap;
+    }
+    .brand__title {
+      font-family: var(--font-display);
+      font-size: 28px;
+      letter-spacing: 0.04em;
+      color: var(--text);
+      margin: 0;
+    }
+    .brand__subtitle {
+      font-family: var(--font-serif);
+      font-style: italic;
+      font-size: 18px;
+      color: var(--text-dim);
+      margin-left: auto;
+    }
+    .brand__pulse {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--phosphor);
+    }
+    .brand__pulse::before {
+      content: "";
+      width: 7px; height: 7px;
+      background: var(--phosphor);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--phosphor);
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.35; }
+      50%      { opacity: 1; }
+    }
+
+    /* ---------- header tiles ---------- */
+    .tiles {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      margin-bottom: 48px;
+    }
+    .tile {
+      background: var(--surface);
+      padding: 20px 22px;
+      min-height: 96px;
+      animation: slide-up 0.5s ease-out backwards;
+    }
+    .tile:nth-child(1) { animation-delay: 0.05s; }
+    .tile:nth-child(2) { animation-delay: 0.10s; }
+    .tile:nth-child(3) { animation-delay: 0.15s; }
+    .tile:nth-child(4) { animation-delay: 0.20s; }
+    .tile:nth-child(5) { animation-delay: 0.25s; }
+    .tile:nth-child(6) { animation-delay: 0.30s; }
+    @keyframes slide-up {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .tile__label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.22em;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+    .tile__value {
+      font-family: var(--font-mono);
+      font-weight: 500;
+      font-size: 24px;
+      color: var(--text);
+      line-height: 1.1;
+    }
+    .tile__sub {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+    .tile--amber   .tile__value { color: var(--amber); }
+    .tile--cyan    .tile__value { color: var(--cyan); }
+    .tile--violet  .tile__value { color: var(--violet); }
+    .tile--phosphor .tile__value { color: var(--phosphor); }
+
+    /* ---------- cards ---------- */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 28px 28px 20px;
+      margin-bottom: 28px;
+      position: relative;
+      transition: border-color 0.3s;
+    }
+    .card:hover {
+      border-color: var(--border-hi);
+    }
+    .card__header {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+    .card__title {
+      font-family: var(--font-display);
+      font-size: 15px;
+      letter-spacing: 0.08em;
+      color: var(--text);
+      margin: 0;
+    }
+    .card__kicker {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.22em;
+      color: var(--text-muted);
+    }
+    .card__caption {
+      font-family: var(--font-serif);
+      font-style: italic;
+      font-size: 14px;
+      color: var(--text-dim);
+      max-width: 760px;
+      margin: 0 0 20px;
+      line-height: 1.55;
+    }
+    .card__caption .hi { color: var(--amber); font-style: normal; font-family: var(--font-mono); }
+    .card__caption .hi-c { color: var(--cyan);  font-style: normal; font-family: var(--font-mono); }
+    .card__caption .hi-v { color: var(--violet); font-style: normal; font-family: var(--font-mono); }
+
+    .chart { width: 100%; }
+
+    /* ---------- two-column for detail rows ---------- */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 28px;
+      margin-bottom: 28px;
+    }
+    .grid-2 .card { margin: 0; }
+
+    /* ---------- footer ---------- */
+    .footer {
+      margin-top: 64px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .footer a { color: var(--text-dim); text-decoration: none; }
+    .footer a:hover { color: var(--phosphor); }
+
+    /* plotly tweaks to keep tooltips on-brand */
+    .js-plotly-plot .plotly .hoverlayer .hovertext {
+      font-family: var(--font-mono) !important;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+
+    <header class="brand">
+      <h1 class="brand__title">NOAA/DRIFT</h1>
+      <span class="brand__subtitle">hourly forecast telemetry &middot; washington dc</span>
+      <span class="brand__pulse">live</span>
+    </header>
+
+    <section class="tiles" id="tiles"></section>
+
+    <section class="card">
+      <header class="card__header">
+        <h2 class="card__title">CURRENT HORIZON</h2>
+        <span class="card__kicker">latest snapshot &middot; next 168 hours</span>
+      </header>
+      <p class="card__caption">
+        What NOAA thinks is coming. <span class="hi">temperature</span> plotted
+        against <span class="hi-c">precipitation probability</span>; hover for the
+        full reading including cloud cover and wind.
+      </p>
+      <div class="chart" id="chart-latest" style="height:420px;"></div>
+    </section>
+
+    <section class="card">
+      <header class="card__header">
+        <h2 class="card__title">FORECAST DRIFT &mdash; TEMPERATURE</h2>
+        <span class="card__kicker">every snapshot, overlaid</span>
+      </header>
+      <p class="card__caption">
+        Each line is one NOAA update. Older forecasts fade into the background;
+        the bold curve is the latest. Tight overlap means the model is confident.
+        Fans of divergence mean uncertainty.
+      </p>
+      <div class="chart" id="chart-spaghetti" style="height:440px;"></div>
+    </section>
+
+    <section class="card">
+      <header class="card__header">
+        <h2 class="card__title">DRIFT HEATMAP &mdash; TEMP DELTA VS LATEST</h2>
+        <span class="card__kicker">how much each snapshot disagreed with the latest</span>
+      </header>
+      <p class="card__caption">
+        Rows are future hours; columns are snapshots, oldest on the left.
+        Positive deltas (warmer predictions than the latest) go
+        <span class="hi">amber</span>; cooler predictions go
+        <span class="hi-c">cyan</span>. White bands mean the forecast has been
+        stable for that hour all along.
+      </p>
+      <div class="chart" id="chart-heatmap" style="height:520px;"></div>
+    </section>
+
+    <section class="card">
+      <header class="card__header">
+        <h2 class="card__title">STABILITY CURVE</h2>
+        <span class="card__kicker">forecast spread vs leadtime</span>
+      </header>
+      <p class="card__caption">
+        The publishable question: <em>how much does NOAA's prediction actually
+        change as the clock runs down?</em> Each point is the spread (max minus
+        min prediction across snapshots) for a future hour, bucketed by how far
+        in advance we first saw it.
+        Expect a monotone-ish climb: longer leadtimes = more drift.
+      </p>
+      <div class="chart" id="chart-stability" style="height:400px;"></div>
+    </section>
+
+    <div class="grid-2">
+      <section class="card">
+        <header class="card__header">
+          <h2 class="card__title">PRECIP PROBABILITY</h2>
+          <span class="card__kicker">drift across snapshots</span>
+        </header>
+        <div class="chart" id="chart-precip" style="height:300px;"></div>
+      </section>
+      <section class="card">
+        <header class="card__header">
+          <h2 class="card__title">WIND SPEED</h2>
+          <span class="card__kicker">latest forecast &middot; 168 hr</span>
+        </header>
+        <div class="chart" id="chart-wind" style="height:300px;"></div>
+      </section>
+    </div>
+
+    <footer class="footer">
+      <span id="foot-build"></span>
+      <span>source: forecast.weather.gov / digitalDWML</span>
+      <a href="https://github.com/zkesrefoglu/noaa-forecast">github.com/zkesrefoglu/noaa-forecast</a>
+    </footer>
+  </div>
+
+  <script>
+    // === data payload injected at build time ===
+    const DATA = __DATA_PAYLOAD__;
+    window.DATA = DATA;  // debug handle
+
+    // === shared plotly theme ===
+    const THEME = {
+      colors: {
+        amber:    '#ffb000',
+        cyan:     '#35d4f0',
+        violet:   '#b794ff',
+        phosphor: '#6aff8a',
+        magenta:  '#ff5fa8',
+        text:     '#e4e4ea',
+        dim:      '#9a9aa5',
+        grid:     'rgba(255,255,255,0.05)',
+        axis:     'rgba(255,255,255,0.18)',
+      },
+      font: { family: "'JetBrains Mono', monospace", size: 11, color: '#9a9aa5' },
+      layout(overrides = {}) {
+        return Object.assign({
+          paper_bgcolor: 'rgba(0,0,0,0)',
+          plot_bgcolor:  'rgba(0,0,0,0)',
+          font: this.font,
+          margin: { l: 56, r: 24, t: 24, b: 44 },
+          hoverlabel: {
+            bgcolor: '#11111a',
+            bordercolor: '#383848',
+            font: { family: "'JetBrains Mono', monospace", size: 11, color: '#e4e4ea' },
+          },
+          xaxis: {
+            gridcolor: this.colors.grid,
+            linecolor: this.colors.axis,
+            zerolinecolor: this.colors.axis,
+            tickfont: { color: this.colors.dim, size: 10 },
+          },
+          yaxis: {
+            gridcolor: this.colors.grid,
+            linecolor: this.colors.axis,
+            zerolinecolor: this.colors.axis,
+            tickfont: { color: this.colors.dim, size: 10 },
+          },
+          legend: {
+            font: { color: this.colors.dim, size: 10 },
+            bgcolor: 'rgba(0,0,0,0)',
+          },
+        }, overrides);
+      },
+      config: {
+        displayModeBar: false,
+        responsive: true,
+      },
+    };
+
+    // === helpers ===
+    const fmt = {
+      temp:  v => v == null ? '\u2014' : v.toFixed(0) + '\u00B0F',
+      pct:   v => v == null ? '\u2014' : v.toFixed(0) + '%',
+      mph:   v => v == null ? '\u2014' : v.toFixed(0) + ' mph',
+      deg:   v => v == null ? '\u2014' : v.toFixed(0) + '\u00B0',
+      dt:    s => s ? s.replace('T',' ').replace('Z',' UTC') : '\u2014',
+      dtShort: s => s ? s.substring(5, 16).replace('T',' ') : '\u2014',
+      num:   (v, d=1) => v == null ? '\u2014' : v.toFixed(d),
+    };
+    function windCompass(deg) {
+      if (deg == null) return '';
+      const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+      return dirs[Math.round(deg / 22.5) % 16];
+    }
+
+    // === header tiles ===
+    function renderTiles() {
+      const m = DATA.meta, h = DATA.headline;
+      const el = document.getElementById('tiles');
+      const tiles = [
+        { label: 'current temp',     value: h ? fmt.temp(h.temp_f) : '\u2014',           sub: 'latest nowcast',                    cls: 'tile--amber' },
+        { label: 'precip prob',      value: h ? fmt.pct(h.precip_prob_pct) : '\u2014',   sub: fmt.pct(h && h.cloud_cover_pct) + ' cloud', cls: 'tile--cyan' },
+        { label: 'wind',             value: h ? fmt.mph(h.wind_speed_mph) : '\u2014',    sub: windCompass(h && h.wind_dir_deg) + ' \u00B7 ' + fmt.deg(h && h.wind_dir_deg), cls: 'tile--violet' },
+        { label: 'snapshots',        value: m.n_snapshots.toString(),                    sub: m.n_locations + ' location(s)',      cls: 'tile--phosphor' },
+        { label: 'median cadence',   value: m.median_gap_min == null ? '\u2014' : fmt.num(m.median_gap_min, 0) + ' min', sub: 'gh actions cron', cls: '' },
+        { label: 'first snapshot',   value: fmt.dtShort(m.first_snap),                   sub: '\u2192 ' + fmt.dtShort(m.last_snap), cls: '' },
+      ];
+      el.innerHTML = tiles.map(t => `
+        <div class="tile ${t.cls}">
+          <div class="tile__label">${t.label}</div>
+          <div class="tile__value">${t.value}</div>
+          <div class="tile__sub">${t.sub}</div>
+        </div>
+      `).join('');
+    }
+
+    // === chart: latest forecast (temp + precip) ===
+    function renderLatest() {
+      const d = DATA.latest;
+      if (!d.length) return;
+      const x = d.map(r => r.valid_ts_utc);
+      const temp = d.map(r => r.temp_f);
+      const precip = d.map(r => r.precip_prob_pct);
+      const cloud = d.map(r => r.cloud_cover_pct);
+      const wind = d.map(r => r.wind_speed_mph);
+      const windDir = d.map(r => r.wind_dir_deg);
+
+      const hover = d.map(r =>
+        `<b>${fmt.dtShort(r.valid_ts_utc)} UTC</b><br>` +
+        `temp   ${fmt.temp(r.temp_f)}<br>` +
+        `precip ${fmt.pct(r.precip_prob_pct)}<br>` +
+        `cloud  ${fmt.pct(r.cloud_cover_pct)}<br>` +
+        `wind   ${fmt.mph(r.wind_speed_mph)} ${windCompass(r.wind_dir_deg)}`
+      );
+
+      const traces = [
+        {
+          x, y: precip, name: 'precip prob',
+          type: 'scatter', mode: 'lines',
+          line: { color: THEME.colors.cyan, width: 0 },
+          fill: 'tozeroy',
+          fillcolor: 'rgba(53,212,240,0.14)',
+          yaxis: 'y2',
+          hoverinfo: 'skip',
+        },
+        {
+          x, y: temp, name: 'temperature',
+          type: 'scatter', mode: 'lines',
+          line: { color: THEME.colors.amber, width: 2.2, shape: 'spline', smoothing: 0.4 },
+          text: hover, hoverinfo: 'text',
+        },
+      ];
+
+      Plotly.newPlot('chart-latest', traces, THEME.layout({
+        margin: { l: 56, r: 56, t: 20, b: 44 },
+        xaxis: Object.assign(THEME.layout().xaxis, { title: '' }),
+        yaxis: Object.assign(THEME.layout().yaxis, {
+          title: { text: 'temp \u00B0F', font: { color: THEME.colors.amber, size: 11 } },
+          tickfont: { color: THEME.colors.amber, size: 10 },
+        }),
+        yaxis2: {
+          overlaying: 'y', side: 'right',
+          title: { text: 'precip %', font: { color: THEME.colors.cyan, size: 11 } },
+          tickfont: { color: THEME.colors.cyan, size: 10 },
+          gridcolor: 'rgba(0,0,0,0)',
+          range: [0, 100],
+        },
+        showlegend: false,
+      }), THEME.config);
+    }
+
+    // === chart: spaghetti — every snapshot's temp curve ===
+    function renderSpaghetti() {
+      const rows = DATA.spaghetti;
+      if (!rows.length) return;
+      // group by snapshot_ts_utc
+      const bySnap = new Map();
+      rows.forEach(r => {
+        if (!bySnap.has(r.snapshot_ts_utc)) bySnap.set(r.snapshot_ts_utc, []);
+        bySnap.get(r.snapshot_ts_utc).push(r);
+      });
+      const snaps = Array.from(bySnap.keys()).sort();
+      const latestSnap = snaps[snaps.length - 1];
+
+      const traces = snaps.map((s, i) => {
+        const isLatest = s === latestSnap;
+        const pts = bySnap.get(s);
+        // fade older snapshots
+        const ageFrac = i / Math.max(1, snaps.length - 1);   // 0 = oldest, 1 = latest
+        const opacity = isLatest ? 1 : Math.max(0.18, 0.2 + 0.55 * ageFrac);
+        return {
+          x: pts.map(p => p.valid_ts_utc),
+          y: pts.map(p => p.temp_f),
+          type: 'scatter',
+          mode: 'lines',
+          name: fmt.dtShort(s),
+          line: {
+            color: isLatest ? THEME.colors.amber : THEME.colors.dim,
+            width: isLatest ? 2.5 : 1,
+          },
+          opacity,
+          hovertemplate: `<b>snap ${fmt.dtShort(s)}</b><br>%{x|%m-%d %H:%M} \u2192 %{y:.0f}\u00B0F<extra></extra>`,
+        };
+      });
+
+      Plotly.newPlot('chart-spaghetti', traces, THEME.layout({
+        yaxis: Object.assign(THEME.layout().yaxis, {
+          title: { text: 'temp \u00B0F', font: { color: THEME.colors.amber, size: 11 } },
+        }),
+        showlegend: false,
+        hovermode: 'closest',
+      }), THEME.config);
+    }
+
+    // === chart: drift heatmap — delta vs latest prediction ===
+    function renderHeatmap() {
+      const rows = DATA.heatmap;
+      if (!rows.length) {
+        document.getElementById('chart-heatmap').innerHTML =
+          '<div style="color:var(--text-muted); padding:40px; text-align:center;">not enough snapshots yet &mdash; heatmap needs >= 2 snapshots per forecast hour.</div>';
+        return;
+      }
+      // Build matrix: y = valid_ts_utc, x = snapshot_ts_utc, z = temp_f - temp_latest(valid)
+      const valids = Array.from(new Set(rows.map(r => r.valid_ts_utc))).sort();
+      const snaps  = Array.from(new Set(rows.map(r => r.snapshot_ts_utc))).sort();
+      const latestSnap = snaps[snaps.length - 1];
+
+      // lookup: temp[valid][snap]
+      const lookup = {};
+      rows.forEach(r => {
+        if (!lookup[r.valid_ts_utc]) lookup[r.valid_ts_utc] = {};
+        lookup[r.valid_ts_utc][r.snapshot_ts_utc] = r.temp_f;
+      });
+      // latest temp per valid
+      const latestByValid = {};
+      valids.forEach(v => { latestByValid[v] = lookup[v][latestSnap]; });
+
+      const z = valids.map(v =>
+        snaps.map(s => {
+          const t = lookup[v][s];
+          const latest = latestByValid[v];
+          if (t == null || latest == null) return null;
+          return t - latest;
+        })
+      );
+
+      Plotly.newPlot('chart-heatmap', [{
+        z,
+        x: snaps.map(fmt.dtShort),
+        y: valids.map(fmt.dtShort),
+        type: 'heatmap',
+        colorscale: [
+          [0,   '#35d4f0'],   // cyan (cooler than latest)
+          [0.5, '#11111a'],   // surface (near zero)
+          [1,   '#ffb000'],   // amber (warmer than latest)
+        ],
+        zmid: 0,
+        colorbar: {
+          title: { text: '\u0394\u00B0F vs latest', font: { color: THEME.colors.dim, size: 10 } },
+          tickfont: { color: THEME.colors.dim, size: 9 },
+          outlinewidth: 0,
+          thickness: 10,
+        },
+        hovertemplate: 'snap %{x}<br>valid %{y}<br>delta %{z:+.1f}\u00B0F<extra></extra>',
+      }], THEME.layout({
+        xaxis: Object.assign(THEME.layout().xaxis, { title: 'snapshot (older \u2192 newer)', showgrid: false }),
+        yaxis: Object.assign(THEME.layout().yaxis, { title: 'forecast hour',                showgrid: false }),
+        margin: { l: 110, r: 40, t: 10, b: 56 },
+      }), THEME.config);
+    }
+
+    // === chart: stability curve (forecast spread vs leadtime) ===
+    function renderStability() {
+      const rows = DATA.stability;
+      const bucketed = DATA.stability_bucketed;
+      if (!rows.length) {
+        document.getElementById('chart-stability').innerHTML =
+          '<div style="color:var(--text-muted); padding:40px; text-align:center;">stability analysis needs >= 2 snapshots per forecast hour &mdash; ping back in a few hours.</div>';
+        return;
+      }
+
+      // scatter of each valid hour's temp spread vs its max leadtime
+      const scatter = {
+        x: rows.map(r => r.max_leadtime),
+        y: rows.map(r => r.temp_spread),
+        type: 'scatter', mode: 'markers',
+        name: 'per-hour',
+        marker: {
+          color: THEME.colors.amber,
+          size: 5,
+          opacity: 0.35,
+          line: { width: 0 },
+        },
+        hovertemplate: 'leadtime %{x}h<br>spread %{y:.1f}\u00B0F<extra></extra>',
+      };
+
+      // 6-hour bucketed mean line
+      const line = {
+        x: bucketed.map(r => r.leadtime_bucket),
+        y: bucketed.map(r => r.avg_temp_spread),
+        type: 'scatter', mode: 'lines+markers',
+        name: 'mean (6h buckets)',
+        line: { color: THEME.colors.phosphor, width: 2.5 },
+        marker: { color: THEME.colors.phosphor, size: 7, line: { width: 0 } },
+        hovertemplate: 'leadtime %{x}-%{x}+5h<br>avg spread %{y:.2f}\u00B0F<extra></extra>',
+      };
+
+      Plotly.newPlot('chart-stability', [scatter, line], THEME.layout({
+        xaxis: Object.assign(THEME.layout().xaxis, {
+          title: { text: 'max leadtime (hours ahead of event)', font: { color: THEME.colors.dim, size: 10 } },
+        }),
+        yaxis: Object.assign(THEME.layout().yaxis, {
+          title: { text: 'temp spread across snapshots (\u00B0F)', font: { color: THEME.colors.dim, size: 10 } },
+        }),
+        showlegend: true,
+        legend: { x: 0.02, y: 0.98, font: { color: THEME.colors.dim, size: 10 }, bgcolor: 'rgba(0,0,0,0)' },
+      }), THEME.config);
+    }
+
+    // === chart: precip drift (spaghetti of precip probability) ===
+    function renderPrecip() {
+      const rows = DATA.spaghetti;
+      if (!rows.length) return;
+      const bySnap = new Map();
+      rows.forEach(r => {
+        if (!bySnap.has(r.snapshot_ts_utc)) bySnap.set(r.snapshot_ts_utc, []);
+        bySnap.get(r.snapshot_ts_utc).push(r);
+      });
+      const snaps = Array.from(bySnap.keys()).sort();
+      const latestSnap = snaps[snaps.length - 1];
+      const traces = snaps.map((s, i) => {
+        const isLatest = s === latestSnap;
+        const pts = bySnap.get(s);
+        const ageFrac = i / Math.max(1, snaps.length - 1);
+        return {
+          x: pts.map(p => p.valid_ts_utc),
+          y: pts.map(p => p.precip_prob_pct),
+          type: 'scatter', mode: 'lines',
+          line: {
+            color: isLatest ? THEME.colors.cyan : THEME.colors.dim,
+            width: isLatest ? 2 : 1,
+          },
+          opacity: isLatest ? 1 : Math.max(0.18, 0.2 + 0.55 * ageFrac),
+          hovertemplate: `<b>snap ${fmt.dtShort(s)}</b><br>%{x|%m-%d %H:%M} \u2192 %{y:.0f}%<extra></extra>`,
+        };
+      });
+      Plotly.newPlot('chart-precip', traces, THEME.layout({
+        yaxis: Object.assign(THEME.layout().yaxis, { range: [0, 100],
+          title: { text: 'precip %', font: { color: THEME.colors.cyan, size: 11 } },
+        }),
+        showlegend: false,
+        margin: { l: 50, r: 16, t: 10, b: 36 },
+      }), THEME.config);
+    }
+
+    // === chart: latest wind ===
+    function renderWind() {
+      const d = DATA.latest;
+      if (!d.length) return;
+      const x = d.map(r => r.valid_ts_utc);
+      const wind = d.map(r => r.wind_speed_mph);
+      const dirs = d.map(r => windCompass(r.wind_dir_deg));
+      Plotly.newPlot('chart-wind', [{
+        x, y: wind,
+        type: 'scatter', mode: 'lines',
+        line: { color: THEME.colors.violet, width: 2, shape: 'spline', smoothing: 0.4 },
+        fill: 'tozeroy',
+        fillcolor: 'rgba(183,148,255,0.12)',
+        text: dirs,
+        hovertemplate: '%{x|%m-%d %H:%M}<br>%{y:.0f} mph %{text}<extra></extra>',
+      }], THEME.layout({
+        yaxis: Object.assign(THEME.layout().yaxis, {
+          title: { text: 'wind mph', font: { color: THEME.colors.violet, size: 11 } },
+        }),
+        showlegend: false,
+        margin: { l: 50, r: 16, t: 10, b: 36 },
+      }), THEME.config);
+    }
+
+    // === footer ===
+    function renderFooter() {
+      document.getElementById('foot-build').textContent =
+        'built ' + fmt.dt(DATA.built_at_utc);
+    }
+
+    // === go ===
+    renderTiles();
+    renderLatest();
+    renderSpaghetti();
+    renderHeatmap();
+    renderStability();
+    renderPrecip();
+    renderWind();
+    renderFooter();
+  </script>
+</body>
+</html>

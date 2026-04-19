@@ -1,0 +1,61 @@
+name: asos-truth
+
+on:
+  schedule:
+    # Once per day at 08:00 UTC (= 04:00 EDT / 03:00 EST).
+    # Late enough that yesterday's ASOS observations have fully settled
+    # (the :53 obs from 23:00 UTC is in and any late-arriving specials
+    # have been ingested by Iowa Mesonet).
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Target date (YYYY-MM-DD, UTC). Blank = yesterday."
+        required: false
+        default: ""
+
+# Share the noaa-forecast concurrency group so we don't race on push.
+concurrency:
+  group: noaa-forecast
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Pull ASOS observed temps
+        run: |
+          if [ -n "${{ inputs.date }}" ]; then
+            python asos_truth.py --zones-csv zones.csv --date "${{ inputs.date }}"
+          else
+            python asos_truth.py --zones-csv zones.csv
+          fi
+
+      - name: Commit ASOS snapshot
+        run: |
+          git config user.name  "noaa-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/asos/
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "asos truth $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git pull --rebase --autostash
+          git push

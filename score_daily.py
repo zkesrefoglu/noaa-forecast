@@ -285,6 +285,14 @@ def _score(
         log.warning("no forecasts to score")
         return pd.DataFrame(), pd.DataFrame()
 
+    # Belt-and-suspenders: ensure both sides have identical tz-aware dtype
+    # before the merge. Empty-frame concat paths above can silently downcast
+    # datetime64[us, UTC] back to object and break the merge.
+    forecasts = forecasts.copy()
+    forecasts["valid_ts_utc"] = pd.to_datetime(forecasts["valid_ts_utc"], utc=True)
+    asos = asos.copy()
+    asos["valid_ts_utc"] = pd.to_datetime(asos["valid_ts_utc"], utc=True)
+
     merged = forecasts.merge(asos, on=["valid_ts_utc", "zone"], how="inner")
     if merged.empty:
         log.warning("no overlap between forecasts and ASOS truth")
@@ -387,7 +395,10 @@ def main() -> int:
     vendor = _load_vendor(con, zones, target_date, args.data_root)
     log.info("vendor rows=%d", len(vendor))
 
-    forecasts = pd.concat([noaa, vendor], ignore_index=True)
+    # Skip empty frames in the concat. An empty DataFrame with object-dtype
+    # columns will downcast datetime64[UTC] to object, which breaks the merge.
+    frames = [f for f in [noaa, vendor] if not f.empty]
+    forecasts = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     hourly, bucket = _score(forecasts, asos, target_date)
 
     if hourly.empty:

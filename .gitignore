@@ -5,3 +5,4 @@ __pycache__/
 .DS_Store
 *.duckdb
 *.duckdb.wal
+zones.txt

@@ -53,14 +53,24 @@ class FetchResult:
 
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Fetch one NOAA hourly-forecast snapshot.")
+    p = argparse.ArgumentParser(description="Fetch NOAA hourly-forecast snapshot(s).")
     p.add_argument("--lat", type=float, default=38.9087, help="Latitude (default: DC)")
     p.add_argument("--lon", type=float, default=-77.0189, help="Longitude (default: DC)")
     p.add_argument(
         "--name",
         type=str,
         default="washington_dc",
-        help="Location slug used for the output path.",
+        help="Location slug used for the output path (single-zone mode).",
+    )
+    p.add_argument(
+        "--zones-csv",
+        type=Path,
+        default=None,
+        help=(
+            "If provided, iterate over the rows of this CSV and snapshot each zone. "
+            "CSV must have columns: zone, lat, lon (extra columns ignored). "
+            "Overrides --lat/--lon/--name."
+        ),
     )
     p.add_argument(
         "--out-dir",
@@ -309,12 +319,58 @@ def run(
     return FetchResult(rows=len(df), out_path=out_path)
 
 
+def _run_from_zones_csv(zones_csv: Path, out_dir: Path) -> int:
+    """Iterate over rows of zones.csv and snapshot each zone.
+
+    Returns 0 if every zone succeeded, 1 if any failed. Failures of individual
+    zones do not abort the remaining work — resilience matters when NOAA
+    occasionally returns 500 on a single endpoint.
+    """
+    import csv
+
+    if not zones_csv.exists():
+        log.error("zones CSV not found: %s", zones_csv)
+        return 1
+
+    successes = 0
+    failures = 0
+    with zones_csv.open("r", encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        for i, row in enumerate(reader, start=1):
+            name = (row.get("zone") or "").strip()
+            if not name:
+                log.error("row %d has empty zone name: %r", i, row)
+                failures += 1
+                continue
+            try:
+                lat = float(row["lat"])
+                lon = float(row["lon"])
+            except (KeyError, TypeError, ValueError) as e:
+                log.error("row %d zone=%s invalid lat/lon: %s", i, name, e)
+                failures += 1
+                continue
+            try:
+                result = run(lat, lon, name, out_dir)
+                print(f"OK zone={name} rows={result.rows} path={result.out_path}")
+                successes += 1
+            except Exception:
+                log.exception("zone %s failed", name)
+                failures += 1
+
+    print(f"Zones: {successes} ok, {failures} failed")
+    return 0 if failures == 0 else 1
+
+
 def main() -> int:
     args = _parse_args()
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+
+    if args.zones_csv:
+        return _run_from_zones_csv(args.zones_csv, args.out_dir)
+
     try:
         result = run(args.lat, args.lon, args.name, args.out_dir)
     except Exception:

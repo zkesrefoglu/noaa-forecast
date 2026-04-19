@@ -32,12 +32,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Fetch NOAA snapshot (Washington DC)
-        run: |
-          python noaa_forecast.py \
-            --lat 38.9087 \
-            --lon -77.0189 \
-            --name washington_dc
+      - name: Fetch NOAA snapshots (all zones)
+        run: python noaa_forecast.py --zones-csv zones.csv
 
       - name: Rebuild dashboard
         run: python build_dashboard.py

@@ -3,3 +3,4 @@ lxml>=5.2
 pandas>=2.2
 pyarrow>=17.0
 duckdb>=1.1
+pytz>=2024.1

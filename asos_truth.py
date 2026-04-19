@@ -29,6 +29,7 @@ import csv
 import io
 import logging
 import sys
+import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -43,6 +44,12 @@ REQUEST_TIMEOUT_S = 60
 # Max minutes from top-of-hour we accept for the "hourly" value.
 # ASOS routine obs are ~:53. Specials can land anywhere. 30 min keeps it honest.
 HOURLY_WINDOW_MIN = 30
+# Seconds to sleep between consecutive station requests. Iowa Mesonet is a
+# free public service; hammering it with 7 requests/sec earns a 429.
+INTER_REQUEST_SLEEP_S = 3.0
+# Retry configuration for transient failures (429, 5xx).
+MAX_RETRIES = 4
+BACKOFF_BASE_S = 5.0  # exponential: 5, 10, 20, 40
 
 log = logging.getLogger("asos_truth")
 
@@ -110,9 +117,8 @@ def _load_zones(zones_csv: Path) -> list[Zone]:
 def _fetch_mesonet_csv(icao: str, target_date: date) -> str:
     """Fetch one UTC-day of ASOS temperature observations for a station.
 
-    Iowa Mesonet's CSV endpoint. Single day means day1==day2 with adjacent
-    day handling via tz=UTC (it returns obs whose 'valid' timestamp falls in
-    [day1, day2)).
+    Iowa Mesonet's CSV endpoint. Returns obs whose 'valid' timestamp falls
+    in [day1, day2) UTC. Retries on 429 and 5xx with exponential backoff.
     """
     next_day = target_date + timedelta(days=1)
     params = {
@@ -132,28 +138,62 @@ def _fetch_mesonet_csv(icao: str, target_date: date) -> str:
         "trace": "T",
         "direct": "no",
     }
-    log.info("GET %s station=%s %s", MESONET_URL, icao, target_date.isoformat())
-    resp = requests.get(
-        MESONET_URL,
-        params=params,
-        headers={"User-Agent": USER_AGENT},
-        timeout=REQUEST_TIMEOUT_S,
-    )
-    resp.raise_for_status()
-    return resp.text
+
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        log.info(
+            "GET station=%s %s (attempt %d/%d)",
+            icao,
+            target_date.isoformat(),
+            attempt,
+            MAX_RETRIES,
+        )
+        try:
+            resp = requests.get(
+                MESONET_URL,
+                params=params,
+                headers={"User-Agent": USER_AGENT},
+                timeout=REQUEST_TIMEOUT_S,
+            )
+        except requests.RequestException as e:
+            last_exc = e
+            log.warning("request error for %s: %s", icao, e)
+            if attempt < MAX_RETRIES:
+                sleep_s = BACKOFF_BASE_S * (2 ** (attempt - 1))
+                time.sleep(sleep_s)
+            continue
+
+        if resp.status_code in (429, 500, 502, 503, 504):
+            retry_after = resp.headers.get("Retry-After")
+            if retry_after and retry_after.isdigit():
+                sleep_s = float(retry_after)
+            else:
+                sleep_s = BACKOFF_BASE_S * (2 ** (attempt - 1))
+            log.warning(
+                "station=%s HTTP %d; sleeping %.1fs before retry",
+                icao,
+                resp.status_code,
+                sleep_s,
+            )
+            last_exc = requests.HTTPError(
+                f"{resp.status_code} {resp.reason}", response=resp
+            )
+            if attempt < MAX_RETRIES:
+                time.sleep(sleep_s)
+            continue
+
+        resp.raise_for_status()
+        return resp.text
+
+    assert last_exc is not None
+    raise last_exc
 
 
 def _parse_mesonet_csv(text: str) -> pd.DataFrame:
-    """Parse the Iowa Mesonet onlycomma CSV into a clean DataFrame.
-
-    Expected columns: station, valid, tmpf
-    'M' represents missing — coerced to NaN.
-    """
-    # The 'onlycomma' endpoint returns plain CSV without the leading # comments.
+    """Parse the Iowa Mesonet onlycomma CSV into a clean DataFrame."""
     df = pd.read_csv(io.StringIO(text))
     if df.empty:
         return df
-    # Accept 'M' and empty strings as missing.
     df["tmpf"] = pd.to_numeric(df["tmpf"], errors="coerce")
     df["valid_ts_utc"] = pd.to_datetime(df["valid"], utc=True, errors="coerce")
     df = df.dropna(subset=["valid_ts_utc"])
@@ -168,7 +208,7 @@ def _hourly_from_obs(
     """Collapse raw ASOS obs to one row per top-of-hour UTC on target_date.
 
     For each hour H (00..23), pick the observation whose timestamp is closest
-    to H:00 UTC, provided it lies within ±window_min.
+    to H:00 UTC, provided it lies within +/- window_min.
     """
     rows = []
     start = datetime.combine(target_date, datetime.min.time(), tzinfo=timezone.utc)
@@ -198,7 +238,6 @@ def _hourly_from_obs(
                 }
             )
             continue
-        # Prefer closest-to-top with non-null tmpf; fall back to closest regardless.
         window = window.copy()
         window["delta"] = (window["valid_ts_utc"] - top).abs()
         non_null = window.dropna(subset=["tmpf"])
@@ -214,7 +253,6 @@ def _hourly_from_obs(
             continue
         chosen = non_null.sort_values("delta").iloc[0]
         offset_min = int(round(chosen["delta"].total_seconds() / 60.0))
-        # Preserve sign: positive if obs is after top-of-hour, negative if before.
         if chosen["valid_ts_utc"] < top:
             offset_min = -offset_min
         rows.append(
@@ -241,7 +279,9 @@ def run(
     successes = 0
     failures = 0
 
-    for z in zones:
+    for idx, z in enumerate(zones):
+        if idx > 0:
+            time.sleep(INTER_REQUEST_SLEEP_S)
         try:
             text = _fetch_mesonet_csv(z.icao, target_date)
             raw = _parse_mesonet_csv(text)
@@ -287,7 +327,10 @@ def run(
     out_path = out_dir / f"{target_date.isoformat()}.parquet"
     combined.to_parquet(out_path, engine="pyarrow", index=False, compression="snappy")
     log.info("wrote %d rows -> %s", len(combined), out_path)
-    print(f"OK asos rows={len(combined)} zones_ok={successes} zones_failed={failures} path={out_path}")
+    print(
+        f"OK asos rows={len(combined)} zones_ok={successes} "
+        f"zones_failed={failures} path={out_path}"
+    )
     return (successes, failures)
 
 

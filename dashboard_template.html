@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NOAA Forecast Drift // Washington DC</title>
+  <title>NOAA/DRIFT // multi-zone forecast telemetry</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -86,7 +86,7 @@
       font-style: italic;
       font-size: 18px;
       color: var(--text-dim);
-      margin-left: auto;
+      margin-left: 0;
     }
     .brand__pulse {
       display: inline-flex;
@@ -96,6 +96,7 @@
       text-transform: uppercase;
       letter-spacing: 0.18em;
       color: var(--phosphor);
+      margin-left: auto;
     }
     .brand__pulse::before {
       content: "";
@@ -108,6 +109,69 @@
     @keyframes pulse {
       0%, 100% { opacity: 0.35; }
       50%      { opacity: 1; }
+    }
+
+    /* ---------- zone picker ---------- */
+    .zonebar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      padding: 14px 18px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      margin-bottom: 32px;
+    }
+    .zonebar__label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.22em;
+      color: var(--text-muted);
+    }
+    .zonebar__chips {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      flex: 1;
+    }
+    .chip {
+      font-family: var(--font-mono);
+      font-weight: 500;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      padding: 6px 14px;
+      background: transparent;
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: all 0.18s ease;
+      text-transform: uppercase;
+    }
+    .chip:hover {
+      color: var(--text);
+      border-color: var(--border-hi);
+    }
+    .chip--active {
+      color: var(--bg);
+      background: var(--amber);
+      border-color: var(--amber);
+      box-shadow: 0 0 12px rgba(255,176,0,0.35);
+    }
+    .chip--active:hover {
+      color: var(--bg);
+      background: var(--amber);
+    }
+    .chip__meta {
+      margin-left: 6px;
+      font-size: 10px;
+      opacity: 0.55;
+      letter-spacing: 0.08em;
+    }
+    .zonebar__note {
+      font-size: 11px;
+      color: var(--text-muted);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
     }
 
     /* ---------- header tiles ---------- */
@@ -206,6 +270,15 @@
 
     .chart { width: 100%; }
 
+    /* subtle fade when zone swaps */
+    .zone-fade {
+      animation: zone-in 0.35s ease-out;
+    }
+    @keyframes zone-in {
+      from { opacity: 0.25; }
+      to   { opacity: 1; }
+    }
+
     /* ---------- two-column for detail rows ---------- */
     .grid-2 {
       display: grid;
@@ -244,9 +317,15 @@
 
     <header class="brand">
       <h1 class="brand__title">NOAA/DRIFT</h1>
-      <span class="brand__subtitle">hourly forecast telemetry &middot; washington dc</span>
+      <span class="brand__subtitle" id="brand-subtitle">hourly forecast telemetry &middot; multi-zone</span>
       <span class="brand__pulse">live</span>
     </header>
+
+    <nav class="zonebar" role="tablist" aria-label="zone picker">
+      <span class="zonebar__label">zone</span>
+      <div class="zonebar__chips" id="zone-chips"></div>
+      <span class="zonebar__note" id="zone-note"></span>
+    </nav>
 
     <section class="tiles" id="tiles"></section>
 
@@ -325,6 +404,7 @@
 
     <footer class="footer">
       <span id="foot-build"></span>
+      <span id="foot-global"></span>
       <span>source: forecast.weather.gov / digitalDWML</span>
       <a href="https://github.com/zkesrefoglu/noaa-forecast">github.com/zkesrefoglu/noaa-forecast</a>
     </footer>
@@ -334,6 +414,9 @@
     // === data payload injected at build time ===
     const DATA = __DATA_PAYLOAD__;
     window.DATA = DATA;  // debug handle
+
+    // Currently active zone. Resolved on load from hash, else default_zone.
+    let ACTIVE_ZONE = null;
 
     // === shared plotly theme ===
     const THEME = {
@@ -400,15 +483,72 @@
       return dirs[Math.round(deg / 22.5) % 16];
     }
 
+    // === zone picker ===
+    function renderZoneChips() {
+      const el = document.getElementById('zone-chips');
+      el.innerHTML = DATA.zones.map(z => {
+        const zd = DATA.by_zone[z];
+        const n = zd && zd.meta ? zd.meta.n_snapshots : 0;
+        const active = z === ACTIVE_ZONE ? ' chip--active' : '';
+        return `<button class="chip${active}" role="tab" aria-selected="${z === ACTIVE_ZONE}" data-zone="${z}">`
+             + `${z}<span class="chip__meta">n=${n}</span></button>`;
+      }).join('');
+      el.querySelectorAll('.chip').forEach(btn => {
+        btn.addEventListener('click', e => {
+          const z = e.currentTarget.getAttribute('data-zone');
+          selectZone(z, true);
+        });
+      });
+    }
+
+    function selectZone(zone, pushHash) {
+      if (!DATA.by_zone[zone]) return;
+      ACTIVE_ZONE = zone;
+      if (pushHash) {
+        history.replaceState(null, '', '#zone=' + zone);
+      }
+      // visual fade on the content block
+      const container = document.querySelector('.container');
+      container.classList.remove('zone-fade');
+      void container.offsetWidth;            // reflow to restart animation
+      container.classList.add('zone-fade');
+
+      renderZoneChips();
+      renderZoneNote();
+      renderSubtitle();
+      renderTiles();
+      renderLatest();
+      renderSpaghetti();
+      renderHeatmap();
+      renderStability();
+      renderPrecip();
+      renderWind();
+    }
+
+    function renderSubtitle() {
+      const zd = DATA.by_zone[ACTIVE_ZONE];
+      const sub = document.getElementById('brand-subtitle');
+      const lat = zd.meta.lat == null ? '\u2014' : zd.meta.lat.toFixed(3);
+      const lon = zd.meta.lon == null ? '\u2014' : zd.meta.lon.toFixed(3);
+      sub.textContent = `${ACTIVE_ZONE} \u00B7 ${lat}, ${lon} \u00B7 hourly forecast telemetry`;
+    }
+
+    function renderZoneNote() {
+      const note = document.getElementById('zone-note');
+      const g = DATA.global;
+      note.textContent = `${g.n_zones} zones \u00B7 ${g.n_snapshots_total} total snapshots`;
+    }
+
     // === header tiles ===
     function renderTiles() {
-      const m = DATA.meta, h = DATA.headline;
+      const zd = DATA.by_zone[ACTIVE_ZONE];
+      const m = zd.meta, h = zd.headline;
       const el = document.getElementById('tiles');
       const tiles = [
         { label: 'current temp',     value: h ? fmt.temp(h.temp_f) : '\u2014',           sub: 'latest nowcast',                    cls: 'tile--amber' },
         { label: 'precip prob',      value: h ? fmt.pct(h.precip_prob_pct) : '\u2014',   sub: fmt.pct(h && h.cloud_cover_pct) + ' cloud', cls: 'tile--cyan' },
         { label: 'wind',             value: h ? fmt.mph(h.wind_speed_mph) : '\u2014',    sub: windCompass(h && h.wind_dir_deg) + ' \u00B7 ' + fmt.deg(h && h.wind_dir_deg), cls: 'tile--violet' },
-        { label: 'snapshots',        value: m.n_snapshots.toString(),                    sub: m.n_locations + ' location(s)',      cls: 'tile--phosphor' },
+        { label: 'snapshots',        value: m.n_snapshots.toString(),                    sub: ACTIVE_ZONE,                         cls: 'tile--phosphor' },
         { label: 'median cadence',   value: m.median_gap_min == null ? '\u2014' : fmt.num(m.median_gap_min, 0) + ' min', sub: 'gh actions cron', cls: '' },
         { label: 'first snapshot',   value: fmt.dtShort(m.first_snap),                   sub: '\u2192 ' + fmt.dtShort(m.last_snap), cls: '' },
       ];
@@ -421,16 +561,18 @@
       `).join('');
     }
 
+    function emptyState(id, msg) {
+      document.getElementById(id).innerHTML =
+        `<div style="color:var(--text-muted); padding:40px; text-align:center;">${msg}</div>`;
+    }
+
     // === chart: latest forecast (temp + precip) ===
     function renderLatest() {
-      const d = DATA.latest;
-      if (!d.length) return;
+      const d = DATA.by_zone[ACTIVE_ZONE].latest;
+      if (!d.length) { emptyState('chart-latest', 'no latest snapshot for ' + ACTIVE_ZONE); return; }
       const x = d.map(r => r.valid_ts_utc);
       const temp = d.map(r => r.temp_f);
       const precip = d.map(r => r.precip_prob_pct);
-      const cloud = d.map(r => r.cloud_cover_pct);
-      const wind = d.map(r => r.wind_speed_mph);
-      const windDir = d.map(r => r.wind_dir_deg);
 
       const hover = d.map(r =>
         `<b>${fmt.dtShort(r.valid_ts_utc)} UTC</b><br>` +
@@ -478,9 +620,8 @@
 
     // === chart: spaghetti — every snapshot's temp curve ===
     function renderSpaghetti() {
-      const rows = DATA.spaghetti;
-      if (!rows.length) return;
-      // group by snapshot_ts_utc
+      const rows = DATA.by_zone[ACTIVE_ZONE].spaghetti;
+      if (!rows.length) { emptyState('chart-spaghetti', 'no snapshot history for ' + ACTIVE_ZONE); return; }
       const bySnap = new Map();
       rows.forEach(r => {
         if (!bySnap.has(r.snapshot_ts_utc)) bySnap.set(r.snapshot_ts_utc, []);
@@ -492,8 +633,7 @@
       const traces = snaps.map((s, i) => {
         const isLatest = s === latestSnap;
         const pts = bySnap.get(s);
-        // fade older snapshots
-        const ageFrac = i / Math.max(1, snaps.length - 1);   // 0 = oldest, 1 = latest
+        const ageFrac = i / Math.max(1, snaps.length - 1);
         const opacity = isLatest ? 1 : Math.max(0.18, 0.2 + 0.55 * ageFrac);
         return {
           x: pts.map(p => p.valid_ts_utc),
@@ -521,24 +661,21 @@
 
     // === chart: drift heatmap — delta vs latest prediction ===
     function renderHeatmap() {
-      const rows = DATA.heatmap;
+      const rows = DATA.by_zone[ACTIVE_ZONE].heatmap;
       if (!rows.length) {
-        document.getElementById('chart-heatmap').innerHTML =
-          '<div style="color:var(--text-muted); padding:40px; text-align:center;">not enough snapshots yet &mdash; heatmap needs >= 2 snapshots per forecast hour.</div>';
+        emptyState('chart-heatmap',
+          'not enough snapshots yet for ' + ACTIVE_ZONE + ' &mdash; heatmap needs >= 2 snapshots per forecast hour.');
         return;
       }
-      // Build matrix: y = valid_ts_utc, x = snapshot_ts_utc, z = temp_f - temp_latest(valid)
       const valids = Array.from(new Set(rows.map(r => r.valid_ts_utc))).sort();
       const snaps  = Array.from(new Set(rows.map(r => r.snapshot_ts_utc))).sort();
       const latestSnap = snaps[snaps.length - 1];
 
-      // lookup: temp[valid][snap]
       const lookup = {};
       rows.forEach(r => {
         if (!lookup[r.valid_ts_utc]) lookup[r.valid_ts_utc] = {};
         lookup[r.valid_ts_utc][r.snapshot_ts_utc] = r.temp_f;
       });
-      // latest temp per valid
       const latestByValid = {};
       valids.forEach(v => { latestByValid[v] = lookup[v][latestSnap]; });
 
@@ -557,9 +694,9 @@
         y: valids.map(fmt.dtShort),
         type: 'heatmap',
         colorscale: [
-          [0,   '#35d4f0'],   // cyan (cooler than latest)
-          [0.5, '#11111a'],   // surface (near zero)
-          [1,   '#ffb000'],   // amber (warmer than latest)
+          [0,   '#35d4f0'],
+          [0.5, '#11111a'],
+          [1,   '#ffb000'],
         ],
         zmid: 0,
         colorbar: {
@@ -578,15 +715,15 @@
 
     // === chart: stability curve (forecast spread vs leadtime) ===
     function renderStability() {
-      const rows = DATA.stability;
-      const bucketed = DATA.stability_bucketed;
+      const zd = DATA.by_zone[ACTIVE_ZONE];
+      const rows = zd.stability;
+      const bucketed = zd.stability_bucketed;
       if (!rows.length) {
-        document.getElementById('chart-stability').innerHTML =
-          '<div style="color:var(--text-muted); padding:40px; text-align:center;">stability analysis needs >= 2 snapshots per forecast hour &mdash; ping back in a few hours.</div>';
+        emptyState('chart-stability',
+          'stability analysis needs >= 2 snapshots per forecast hour for ' + ACTIVE_ZONE + ' &mdash; ping back in a few hours.');
         return;
       }
 
-      // scatter of each valid hour's temp spread vs its max leadtime
       const scatter = {
         x: rows.map(r => r.max_leadtime),
         y: rows.map(r => r.temp_spread),
@@ -601,7 +738,6 @@
         hovertemplate: 'leadtime %{x}h<br>spread %{y:.1f}\u00B0F<extra></extra>',
       };
 
-      // 6-hour bucketed mean line
       const line = {
         x: bucketed.map(r => r.leadtime_bucket),
         y: bucketed.map(r => r.avg_temp_spread),
@@ -626,8 +762,8 @@
 
     // === chart: precip drift (spaghetti of precip probability) ===
     function renderPrecip() {
-      const rows = DATA.spaghetti;
-      if (!rows.length) return;
+      const rows = DATA.by_zone[ACTIVE_ZONE].spaghetti;
+      if (!rows.length) { emptyState('chart-precip', 'no data'); return; }
       const bySnap = new Map();
       rows.forEach(r => {
         if (!bySnap.has(r.snapshot_ts_utc)) bySnap.set(r.snapshot_ts_utc, []);
@@ -662,8 +798,8 @@
 
     // === chart: latest wind ===
     function renderWind() {
-      const d = DATA.latest;
-      if (!d.length) return;
+      const d = DATA.by_zone[ACTIVE_ZONE].latest;
+      if (!d.length) { emptyState('chart-wind', 'no data'); return; }
       const x = d.map(r => r.valid_ts_utc);
       const wind = d.map(r => r.wind_speed_mph);
       const dirs = d.map(r => windCompass(r.wind_dir_deg));
@@ -688,17 +824,27 @@
     function renderFooter() {
       document.getElementById('foot-build').textContent =
         'built ' + fmt.dt(DATA.built_at_utc);
+      const g = DATA.global;
+      document.getElementById('foot-global').textContent =
+        `latest pull ${fmt.dt(g.last_snap)} \u00B7 ${g.n_snapshots_total} snapshots across ${g.n_zones} zones`;
     }
 
-    // === go ===
-    renderTiles();
-    renderLatest();
-    renderSpaghetti();
-    renderHeatmap();
-    renderStability();
-    renderPrecip();
-    renderWind();
+    // === bootstrap ===
+    function resolveInitialZone() {
+      const m = window.location.hash.match(/zone=([A-Za-z0-9_-]+)/);
+      if (m && DATA.by_zone[m[1]]) return m[1];
+      return DATA.default_zone;
+    }
+
+    window.addEventListener('hashchange', () => {
+      const z = resolveInitialZone();
+      if (z !== ACTIVE_ZONE) selectZone(z, false);
+    });
+
+    // go
+    ACTIVE_ZONE = resolveInitialZone();
     renderFooter();
+    selectZone(ACTIVE_ZONE, false);
   </script>
 </body>
 </html>

@@ -1,26 +1,37 @@
 # capture_vendor.ps1
 #
 # Daily vendor forecast capture. Run on the work machine via Windows Task
-# Scheduler at 10:00 AM local time (post-8:30 AM java dump, pre-arbitrary).
+# Scheduler at 10:00 AM local (14:00 UTC EDT / 15:00 UTC EST).
+#
+# Context:
+#   The WGL OPS java process (TmprHistRefresherApp) regenerates the CSV twice
+#   daily. The MORNING run is the one the scheduling team uses and the one we
+#   want to capture. By 10 AM local the morning file has been written and
+#   Ziya's laptop is on.
+#
+#   Source file lives on the WGES file server. It is overwritten in place on
+#   each java run, so we have to grab it before the next run clobbers it.
 #
 # What it does:
-#   1. Copies the java-generated vendor file from the internal network share
-#      into the local git clone.
-#   2. Renames it with today's date (YYYY-MM-DD.csv).
-#   3. Commits and pushes to the noaa-forecast repo.
+#   1. Copies the java-generated vendor CSV from the WGES network share into
+#      the local git clone, renamed to data/vendor/<captureDate>.csv where
+#      captureDate is the source file's LastWriteTime (NOT "today").
+#   2. Short-circuits if the same content has already been captured (SHA256).
+#   3. git pull --quiet -> add -> commit -> push.
 #
 # Prerequisites:
 #   - Git installed and on PATH.
 #   - Git credentials configured (credential manager or SSH key).
 #   - Local clone of noaa-forecast at $RepoPath below.
 #   - Work machine has outbound HTTPS to github.com (verified).
+#   - Read access to \\stpwsvcritfil04\WGES-Databases\ (corp VPN / domain).
 #
 # Idempotent: if today's file is already committed, the push is a no-op.
 
 $ErrorActionPreference = "Stop"
 
 # === Configure these two lines ===
-$VendorFile = "\\FILL_IN_SERVER\fill\in\path\ops-query-in-out_hourly_temp.csv"
+$VendorFile = "\\stpwsvcritfil04\WGES-Databases\Reports\DailyHourlyTemp\ops-query-in-out_hourly_temp.csv"
 $RepoPath   = "C:\Users\Ziya\Documents\GitHub\noaa-forecast"
 # =================================
 

@@ -1,0 +1,53 @@
+﻿2026-04-19T20:37:44.3957077Z ##[group]Run pip install -r requirements.txt
+2026-04-19T20:37:44.3957608Z [36;1mpip install -r requirements.txt[0m
+2026-04-19T20:37:44.3987278Z shell: /usr/bin/bash -e {0}
+2026-04-19T20:37:44.3987570Z env:
+2026-04-19T20:37:44.3987867Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-04-19T20:37:44.3988316Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib/pkgconfig
+2026-04-19T20:37:44.3988731Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-04-19T20:37:44.3989096Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-04-19T20:37:44.3989462Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-04-19T20:37:44.3989816Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib
+2026-04-19T20:37:44.3990130Z ##[endgroup]
+2026-04-19T20:37:45.5120431Z Collecting requests>=2.32 (from -r requirements.txt (line 1))
+2026-04-19T20:37:45.5137009Z   Using cached requests-2.33.1-py3-none-any.whl.metadata (4.8 kB)
+2026-04-19T20:37:45.7206577Z Collecting lxml>=5.2 (from -r requirements.txt (line 2))
+2026-04-19T20:37:45.7220967Z   Using cached lxml-6.1.0-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl.metadata (4.0 kB)
+2026-04-19T20:37:45.8262051Z Collecting pandas>=2.2 (from -r requirements.txt (line 3))
+2026-04-19T20:37:45.8276656Z   Using cached pandas-3.0.2-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (79 kB)
+2026-04-19T20:37:45.9261460Z Collecting pyarrow>=17.0 (from -r requirements.txt (line 4))
+2026-04-19T20:37:45.9276547Z   Using cached pyarrow-23.0.1-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (3.1 kB)
+2026-04-19T20:37:46.2203616Z Collecting duckdb>=1.1 (from -r requirements.txt (line 5))
+2026-04-19T20:37:46.2217531Z   Using cached duckdb-1.5.2-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl.metadata (4.2 kB)
+2026-04-19T20:37:46.2511424Z Collecting pytz>=2024.1 (from -r requirements.txt (line 6))
+2026-04-19T20:37:46.2524679Z   Using cached pytz-2026.1.post1-py2.py3-none-any.whl.metadata (22 kB)
+2026-04-19T20:37:46.3702397Z Collecting charset_normalizer<4,>=2 (from requests>=2.32->-r requirements.txt (line 1))
+2026-04-19T20:37:46.3717471Z   Using cached charset_normalizer-3.4.7-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (40 kB)
+2026-04-19T20:37:46.3842834Z Collecting idna<4,>=2.5 (from requests>=2.32->-r requirements.txt (line 1))
+2026-04-19T20:37:46.3856083Z   Using cached idna-3.11-py3-none-any.whl.metadata (8.4 kB)
+2026-04-19T20:37:46.4036772Z Collecting urllib3<3,>=1.26 (from requests>=2.32->-r requirements.txt (line 1))
+2026-04-19T20:37:46.4049463Z   Using cached urllib3-2.6.3-py3-none-any.whl.metadata (6.9 kB)
+2026-04-19T20:37:46.4196728Z Collecting certifi>=2023.5.7 (from requests>=2.32->-r requirements.txt (line 1))
+2026-04-19T20:37:46.4210240Z   Using cached certifi-2026.2.25-py3-none-any.whl.metadata (2.5 kB)
+2026-04-19T20:37:46.6080331Z Collecting numpy>=1.26.0 (from pandas>=2.2->-r requirements.txt (line 3))
+2026-04-19T20:37:46.6095963Z   Using cached numpy-2.4.4-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (6.6 kB)
+2026-04-19T20:37:46.6198496Z Collecting python-dateutil>=2.8.2 (from pandas>=2.2->-r requirements.txt (line 3))
+2026-04-19T20:37:46.6210959Z   Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)
+2026-04-19T20:37:46.6329553Z Collecting six>=1.5 (from python-dateutil>=2.8.2->pandas>=2.2->-r requirements.txt (line 3))
+2026-04-19T20:37:46.6341805Z   Using cached six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+2026-04-19T20:37:46.6371537Z Using cached requests-2.33.1-py3-none-any.whl (64 kB)
+2026-04-19T20:37:46.6384584Z Using cached charset_normalizer-3.4.7-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (216 kB)
+2026-04-19T20:37:46.6396892Z Using cached idna-3.11-py3-none-any.whl (71 kB)
+2026-04-19T20:37:46.6409606Z Using cached urllib3-2.6.3-py3-none-any.whl (131 kB)
+2026-04-19T20:37:46.6421729Z Using cached lxml-6.1.0-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl (5.2 MB)
+2026-04-19T20:37:46.6453121Z Using cached pandas-3.0.2-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (10.9 MB)
+2026-04-19T20:37:46.6505174Z Using cached pyarrow-23.0.1-cp312-cp312-manylinux_2_28_x86_64.whl (47.6 MB)
+2026-04-19T20:37:46.6685936Z Using cached duckdb-1.5.2-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl (21.4 MB)
+2026-04-19T20:37:46.6775922Z Using cached pytz-2026.1.post1-py2.py3-none-any.whl (510 kB)
+2026-04-19T20:37:46.6789926Z Using cached certifi-2026.2.25-py3-none-any.whl (153 kB)
+2026-04-19T20:37:46.6803060Z Using cached numpy-2.4.4-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (16.6 MB)
+2026-04-19T20:37:46.6878385Z Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+2026-04-19T20:37:46.6891629Z Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)
+2026-04-19T20:37:46.8561138Z Installing collected packages: pytz, urllib3, six, pyarrow, numpy, lxml, idna, duckdb, charset_normalizer, certifi, requests, python-dateutil, pandas
+2026-04-19T20:37:55.9923228Z 
+2026-04-19T20:37:55.9943351Z Successfully installed certifi-2026.2.25 charset_normalizer-3.4.7 duckdb-1.5.2 idna-3.11 lxml-6.1.0 numpy-2.4.4 pandas-3.0.2 pyarrow-23.0.1 python-dateutil-2.9.0.post0 pytz-2026.1.post1 requests-2.33.1 six-1.17.0 urllib3-2.6.3

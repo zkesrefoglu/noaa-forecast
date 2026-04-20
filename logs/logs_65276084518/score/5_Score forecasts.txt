@@ -1,0 +1,40 @@
+﻿2026-04-19T20:37:56.2958632Z ##[group]Run if [ -n "2026-04-19" ]; then
+2026-04-19T20:37:56.2958997Z [36;1mif [ -n "2026-04-19" ]; then[0m
+2026-04-19T20:37:56.2959315Z [36;1m  python score_daily.py --date "2026-04-19"[0m
+2026-04-19T20:37:56.2959598Z [36;1melse[0m
+2026-04-19T20:37:56.2959796Z [36;1m  python score_daily.py[0m
+2026-04-19T20:37:56.2960020Z [36;1mfi[0m
+2026-04-19T20:37:56.2983863Z shell: /usr/bin/bash -e {0}
+2026-04-19T20:37:56.2984940Z env:
+2026-04-19T20:37:56.2985222Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-04-19T20:37:56.2985653Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib/pkgconfig
+2026-04-19T20:37:56.2986099Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-04-19T20:37:56.2986464Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-04-19T20:37:56.2986828Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-04-19T20:37:56.2987187Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib
+2026-04-19T20:37:56.2987501Z ##[endgroup]
+2026-04-19T20:37:57.1596413Z 2026-04-19 20:37:57,159 INFO score_daily: asos rows=143 zones=7
+2026-04-19T20:37:57.1670815Z 2026-04-19 20:37:57,166 INFO score_daily: zone=DCA noaa_rows=35 snapshots=6
+2026-04-19T20:37:57.1721572Z 2026-04-19 20:37:57,171 INFO score_daily: zone=ABE noaa_rows=9 snapshots=2
+2026-04-19T20:37:57.1768942Z 2026-04-19 20:37:57,176 INFO score_daily: zone=PHL noaa_rows=9 snapshots=2
+2026-04-19T20:37:57.1825175Z 2026-04-19 20:37:57,182 INFO score_daily: zone=PIT noaa_rows=35 snapshots=6
+2026-04-19T20:37:57.1872384Z 2026-04-19 20:37:57,187 INFO score_daily: zone=CLE noaa_rows=9 snapshots=2
+2026-04-19T20:37:57.1932107Z 2026-04-19 20:37:57,193 INFO score_daily: zone=LCK noaa_rows=35 snapshots=6
+2026-04-19T20:37:57.1983615Z 2026-04-19 20:37:57,198 INFO score_daily: zone=EWR noaa_rows=9 snapshots=2
+2026-04-19T20:37:57.2016992Z 2026-04-19 20:37:57,201 INFO score_daily: noaa rows=141 snapshots=18
+2026-04-19T20:37:57.2018312Z 2026-04-19 20:37:57,201 INFO score_daily: vendor dir missing; skipping vendor scoring
+2026-04-19T20:37:57.2023137Z 2026-04-19 20:37:57,202 INFO score_daily: vendor rows=0
+2026-04-19T20:37:57.2245965Z 2026-04-19 20:37:57,224 INFO score_daily: wrote 63 hourly rows -> data/scores/hourly_detail_2026-04-19.parquet
+2026-04-19T20:37:57.2279069Z 2026-04-19 20:37:57,227 INFO score_daily: wrote 7 bucket rows (upserted) -> data/scores/daily_by_bucket.parquet
+2026-04-19T20:37:57.2385732Z OK score asos_date=2026-04-19 hourly=63 bucket=7 sources=['noaa']
+2026-04-19T20:37:57.2386112Z 
+2026-04-19T20:37:57.2386214Z Bucket summary (MAE F):
+2026-04-19T20:37:57.2386480Z source       noaa
+2026-04-19T20:37:57.2386694Z zone bucket      
+2026-04-19T20:37:57.2386902Z ABE  0-6h    3.00
+2026-04-19T20:37:57.2387111Z CLE  0-6h    1.00
+2026-04-19T20:37:57.2387306Z DCA  0-6h    0.91
+2026-04-19T20:37:57.2387505Z EWR  0-6h    5.00
+2026-04-19T20:37:57.2387704Z LCK  0-6h    0.84
+2026-04-19T20:37:57.2387899Z PHL  0-6h    1.00
+2026-04-19T20:37:57.2388099Z PIT  0-6h    4.73

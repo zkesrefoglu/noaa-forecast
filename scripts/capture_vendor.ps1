@@ -32,7 +32,7 @@ $ErrorActionPreference = "Stop"
 
 # === Configure these two lines ===
 $VendorFile = "\\stpwsvcritfil04\WGES-Databases\Reports\DailyHourlyTemp\ops-query-in-out_hourly_temp.csv"
-$RepoPath   = "C:\Users\Ziya\Documents\GitHub\noaa-forecast"
+$RepoPath   = Split-Path -Parent $PSScriptRoot
 # =================================
 
 # Use the date the java process generated the file (the file's modification

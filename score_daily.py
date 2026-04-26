@@ -402,8 +402,13 @@ def main() -> int:
     hourly, bucket = _score(forecasts, asos, target_date)
 
     if hourly.empty:
-        log.error("no scored rows; aborting write")
-        return 1
+        # Valid outcome (no overlap between forecasts and ASOS, often because
+        # neither vendor nor NOAA has data covering this date). Not an error.
+        log.warning(
+            "no scored rows for %s (no forecasts × ASOS overlap); skipping write",
+            target_date,
+        )
+        return 0
 
     scores_dir = args.data_root / "scores"
     scores_dir.mkdir(parents=True, exist_ok=True)

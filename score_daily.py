@@ -244,7 +244,14 @@ def _load_vendor(
         )
         df["valid_ts_utc"] = df["valid_ts_local"].dt.tz_convert("UTC")
         df["snapshot_ts_utc"] = snapshot_ts
-        df["forecast_tmpf"] = pd.to_numeric(df["Q_TEMP"], errors="coerce")
+        # CRITICAL: vendor file uses MIXED UNITS by source code.
+        # - C_WEATHER_SOURCE=1 (historical actuals): Fahrenheit
+        # - C_WEATHER_SOURCE=4 (forecast):           Celsius
+        # We've already filtered to source=4 above, so convert C -> F.
+        # Discovered 2026-04-26 -- prior to this, vendor MAE looked like
+        # ~45 F, which is exactly the C-to-F offset for typical US temps.
+        q_celsius = pd.to_numeric(df["Q_TEMP"], errors="coerce")
+        df["forecast_tmpf"] = q_celsius * 9.0 / 5.0 + 32.0
         out = df[["snapshot_ts_utc", "valid_ts_utc", "zone", "forecast_tmpf"]].dropna(
             subset=["forecast_tmpf", "valid_ts_utc"]
         )

@@ -13,6 +13,7 @@ Every landmine this project has stepped on, with the fix. Read this BEFORE blami
 7. "NOAA rows = 0" when there's definitely data
 8. ASOS parquet timestamp precision is `us`, not `ns`
 9. Small-sample MAE is not a metric; it's a rumor
+10. Vendor `Q_TEMP` is mixed units: source=1 is Fahrenheit, source=4 is Celsius
 
 ---
 
@@ -155,3 +156,33 @@ If `location_name` values don't match `zones.csv` → stale data, clean up.
 **Fix:** report `n` alongside every MAE. For the weekly management report, hide any row where `n < 30` as "insufficient data" or gray-out. The pipeline accumulates naturally; wait a week before making claims.
 
 **Rule of thumb:** trust `mae` when `n >= 30`. Take it seriously when `n >= 100`. Declare a winner only after `n >= 200` per (zone, bucket, source).
+
+---
+
+## 10. Vendor `Q_TEMP` is mixed units: source=1 is Fahrenheit, source=4 is Celsius
+
+**Symptom:** Vendor MAE comes out at ~45°F across every zone and every bucket. Looks insane (no commercial vendor is that bad). Bias is also large, in the same direction as the MAE magnitude.
+
+**Cause:** The WGL SQL export `ops-query-in-out_hourly_temp.csv` mixes units in the `Q_TEMP` column based on `C_WEATHER_SOURCE`:
+
+- `C_WEATHER_SOURCE = 1` (historical actuals): **Fahrenheit**
+- `C_WEATHER_SOURCE = 2` (alternate historical): **Fahrenheit** (assumed; not verified)
+- `C_WEATHER_SOURCE = 4` (forecast): **Celsius**
+
+The scorer filters to source=4 (the forecast rows), so it sees Celsius values. If treated as Fahrenheit, comparison against ASOS Fahrenheit truth produces a ~25-32°F constant offset that registers as ~45°F MAE on typical US daily temperatures. The math: `30°C - 86°F = -56` if both treated as F; `|30 - 86| = 56`; pooled across daily highs and lows, mean abs error ~45°F.
+
+**Fix (already in code):** in `score_daily.py._load_vendor`:
+
+```python
+# CRITICAL: vendor file uses MIXED UNITS by source code.
+# Already filtered to source=4 above, so convert C -> F.
+q_celsius = pd.to_numeric(df["Q_TEMP"], errors="coerce")
+df["forecast_tmpf"] = q_celsius * 9.0 / 5.0 + 32.0
+```
+
+**How this was caught:** initial historical backfill produced vendor MAE of 45°F across all 7 zones at every bucket. The magnitude was dead-giveaway — too clean, too uniform, exactly the C-to-F offset for mid-latitude temperatures. Discovered 2026-04-26.
+
+**Don't:**
+- Don't assume the WGL data dictionary is authoritative. The vendor-integration.md doc said "Q_TEMP — temperature, °F" — it was wrong. Verify by spot-checking a hot summer afternoon in DC: if you see values like 30, that's Celsius; 86 is Fahrenheit.
+- Don't fix this by converting `Q_TEMP` upstream of the source filter. Source=1 (historical) is genuinely in Fahrenheit and shouldn't be converted. The conversion lives AFTER the source=4 filter for that reason.
+- Don't trust this if WGL changes the SQL query that produces the file. If the SQL ever joins different upstream tables or changes units, this assumption breaks silently. Add a sanity check: if vendor MAE jumps to 40+°F overnight, suspect a unit change before suspecting the model.

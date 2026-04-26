@@ -199,6 +199,31 @@ def _zone_payload(con: duckdb.DuckDBPyConnection, zone: str) -> dict:
             "wind_dir_deg": float(current["wind_dir_deg"]) if pd.notna(current["wind_dir_deg"]) else None,
         }
 
+    # Forecast accuracy vs ASOS truth, aggregated across the full backfill
+    # range. Pooled by observation count (weighted MAE) so days with more obs
+    # carry proportionally more weight than sparse days. Returns empty frame
+    # if the scores view is empty (no scoring runs yet).
+    score_summary = con.execute(
+        """
+        SELECT
+            source,
+            bucket,
+            SUM(n)                                          AS total_obs,
+            COUNT(DISTINCT asos_date)                       AS days,
+            CAST(SUM(mae * n) AS DOUBLE)
+                / NULLIF(SUM(n), 0)                         AS weighted_mae,
+            CAST(SUM(bias * n) AS DOUBLE)
+                / NULLIF(SUM(n), 0)                         AS weighted_bias,
+            MIN(asos_date)                                  AS first_date,
+            MAX(asos_date)                                  AS last_date
+        FROM scores
+        WHERE zone = ?
+        GROUP BY source, bucket
+        ORDER BY source, bucket
+        """,
+        [zone],
+    ).fetchdf()
+
     return {
         "zone": zone,
         "meta": {
@@ -216,6 +241,7 @@ def _zone_payload(con: duckdb.DuckDBPyConnection, zone: str) -> dict:
         "heatmap": _jsonable(heatmap_df),
         "stability": _jsonable(stability_df),
         "stability_bucketed": _jsonable(stability_bucketed),
+        "score_summary": _jsonable(score_summary),
     }
 
 
@@ -242,6 +268,33 @@ def build_payload() -> dict:
         f"CREATE VIEW fh AS "
         f"SELECT * FROM read_parquet({sql_list}, union_by_name=true)"
     )
+
+    # Forecast-vs-truth scores. If the scoring pipeline hasn't produced
+    # daily_by_bucket.parquet yet, expose an empty view with the right schema
+    # so per-zone queries return an empty frame instead of crashing.
+    scores_path = Path("data") / "scores" / "daily_by_bucket.parquet"
+    if scores_path.exists():
+        con.execute(
+            f"CREATE VIEW scores AS "
+            f"SELECT * FROM read_parquet('{scores_path.as_posix()}')"
+        )
+    else:
+        con.execute(
+            """
+            CREATE VIEW scores AS
+            SELECT
+                CAST(NULL AS VARCHAR) AS asos_date,
+                CAST(NULL AS VARCHAR) AS zone,
+                CAST(NULL AS VARCHAR) AS source,
+                CAST(NULL AS VARCHAR) AS bucket,
+                CAST(NULL AS BIGINT)  AS n,
+                CAST(NULL AS DOUBLE)  AS mae,
+                CAST(NULL AS DOUBLE)  AS bias,
+                CAST(NULL AS DOUBLE)  AS rmse,
+                CAST(NULL AS DOUBLE)  AS max_abs_error
+            WHERE 1 = 0
+            """
+        )
 
     # Globally unique zones, ordered deterministically.
     zones_df = con.execute(

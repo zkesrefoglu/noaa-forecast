@@ -223,6 +223,63 @@
     .tile--violet  .tile__value { color: var(--violet); }
     .tile--phosphor .tile__value { color: var(--phosphor); }
 
+    /* ---------- score summary tiles (forecast accuracy section) ---------- */
+    .score-grid {
+      display: grid;
+      grid-template-columns: 80px repeat(5, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      margin-bottom: 20px;
+      font-family: var(--font-mono);
+    }
+    .score-cell {
+      background: var(--surface);
+      padding: 10px 12px;
+      min-height: 64px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .score-cell--header {
+      background: var(--bg);
+      font-size: 9px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      align-items: center;
+      justify-content: center;
+      min-height: 32px;
+    }
+    .score-cell--row-label {
+      background: var(--bg);
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .score-cell--row-label.is-vendor { color: var(--amber); }
+    .score-cell--row-label.is-noaa   { color: var(--cyan); }
+    .score-cell__mae {
+      font-size: 20px;
+      font-weight: 500;
+      color: var(--text);
+      line-height: 1;
+    }
+    .score-cell__mae.is-vendor { color: var(--amber); }
+    .score-cell__mae.is-noaa   { color: var(--cyan); }
+    .score-cell__sub {
+      font-size: 9px;
+      color: var(--text-dim);
+      margin-top: 4px;
+      letter-spacing: 0.05em;
+    }
+    .score-cell__empty {
+      color: var(--text-dim);
+      font-size: 18px;
+      opacity: 0.4;
+    }
+
     /* ---------- cards ---------- */
     .card {
       background: var(--surface);
@@ -385,6 +442,23 @@
       <div class="chart" id="chart-stability" style="height:400px;"></div>
     </section>
 
+    <section class="card">
+      <header class="card__header">
+        <h2 class="card__title">FORECAST ACCURACY VS REALITY</h2>
+        <span class="card__kicker">vendor &amp; NOAA MAE per leadtime bucket</span>
+      </header>
+      <p class="card__caption">
+        How wrong was each forecast on average, in &deg;F? MAE = mean absolute error
+        vs ASOS-observed temperatures. Lower is better. <span class="hi">Vendor</span> shows
+        ~12 months of historical data captured from the morning Java run; <span class="hi-c">NOAA</span>
+        is a few days deep and grows daily. Empty cells mean the source has no
+        observations in that bucket yet.
+      </p>
+      <div class="score-grid" id="score-grid"></div>
+      <div class="chart" id="chart-score-bars" style="height:380px;"></div>
+      <p class="card__caption" id="score-coverage" style="margin-top:14px; font-size:10px;"></p>
+    </section>
+
     <div class="grid-2">
       <section class="card">
         <header class="card__header">
@@ -521,6 +595,7 @@
       renderSpaghetti();
       renderHeatmap();
       renderStability();
+      renderScoreSummary();
       renderPrecip();
       renderWind();
     }
@@ -758,6 +833,101 @@
         showlegend: true,
         legend: { x: 0.02, y: 0.98, font: { color: THEME.colors.dim, size: 10 }, bgcolor: 'rgba(0,0,0,0)' },
       }), THEME.config);
+    }
+
+    // === chart: forecast accuracy (MAE vs ASOS truth, by source × bucket) ===
+    function renderScoreSummary() {
+      const zd = DATA.by_zone[ACTIVE_ZONE];
+      const rows = zd.score_summary || [];
+      const BUCKETS = ['0-6h', '6-24h', '24-48h', '48-72h', '72-168h'];
+      const SOURCES = ['vendor', 'noaa'];
+
+      // Build a lookup: { source: { bucket: row } }
+      const byKey = {};
+      SOURCES.forEach(s => { byKey[s] = {}; });
+      rows.forEach(r => {
+        if (!byKey[r.source]) byKey[r.source] = {};
+        byKey[r.source][r.bucket] = r;
+      });
+
+      // === score-grid (KPI tiles) ===
+      const grid = document.getElementById('score-grid');
+      const cells = [];
+      // Header row: empty corner + bucket labels
+      cells.push(`<div class="score-cell score-cell--header"></div>`);
+      BUCKETS.forEach(b => {
+        cells.push(`<div class="score-cell score-cell--header">${b}</div>`);
+      });
+      // Data rows: one per source
+      SOURCES.forEach(src => {
+        const cls = src === 'vendor' ? 'is-vendor' : 'is-noaa';
+        cells.push(`<div class="score-cell score-cell--row-label ${cls}">${src}</div>`);
+        BUCKETS.forEach(b => {
+          const r = byKey[src][b];
+          if (r) {
+            cells.push(`
+              <div class="score-cell">
+                <div class="score-cell__mae ${cls}">${r.weighted_mae.toFixed(2)}&deg;F</div>
+                <div class="score-cell__sub">${r.days}d &middot; ${r.total_obs.toLocaleString()} obs</div>
+              </div>`);
+          } else {
+            cells.push(`<div class="score-cell"><div class="score-cell__empty">&mdash;</div></div>`);
+          }
+        });
+      });
+      grid.innerHTML = cells.join('');
+
+      // === chart: grouped bar (vendor vs noaa per bucket) ===
+      if (!rows.length) {
+        emptyState('chart-score-bars', 'no scoring data yet for ' + ACTIVE_ZONE);
+        document.getElementById('score-coverage').textContent = '';
+        return;
+      }
+      const traces = SOURCES.map(src => {
+        const color = src === 'vendor' ? THEME.colors.amber : THEME.colors.cyan;
+        return {
+          x: BUCKETS,
+          y: BUCKETS.map(b => byKey[src][b] ? byKey[src][b].weighted_mae : null),
+          type: 'bar',
+          name: src,
+          marker: { color: color, line: { width: 0 } },
+          customdata: BUCKETS.map(b => {
+            const r = byKey[src][b];
+            return r ? [r.days, r.total_obs, r.first_date, r.last_date] : ['', '', '', ''];
+          }),
+          hovertemplate:
+            '<b>' + src + ' &middot; %{x}</b><br>' +
+            'MAE %{y:.2f}&deg;F<br>' +
+            '%{customdata[0]} days &middot; %{customdata[1]} obs<br>' +
+            '%{customdata[2]} &rarr; %{customdata[3]}<extra></extra>',
+        };
+      });
+
+      Plotly.newPlot('chart-score-bars', traces, THEME.layout({
+        barmode: 'group',
+        bargap: 0.25,
+        bargroupgap: 0.08,
+        xaxis: Object.assign(THEME.layout().xaxis, {
+          title: { text: 'leadtime bucket', font: { color: THEME.colors.dim, size: 10 } },
+          showgrid: false,
+        }),
+        yaxis: Object.assign(THEME.layout().yaxis, {
+          title: { text: 'MAE (°F)', font: { color: THEME.colors.dim, size: 10 } },
+          rangemode: 'tozero',
+        }),
+        showlegend: true,
+        legend: { x: 0.02, y: 0.98, font: { color: THEME.colors.dim, size: 11 }, bgcolor: 'rgba(0,0,0,0)' },
+      }), THEME.config);
+
+      // === coverage footnote ===
+      const dateRange = rows.reduce((acc, r) => {
+        if (!acc.first || r.first_date < acc.first) acc.first = r.first_date;
+        if (!acc.last  || r.last_date  > acc.last ) acc.last  = r.last_date;
+        return acc;
+      }, { first: null, last: null });
+      const totalObs = rows.reduce((s, r) => s + r.total_obs, 0);
+      document.getElementById('score-coverage').innerHTML =
+        `coverage: ${dateRange.first} &rarr; ${dateRange.last} &middot; ${totalObs.toLocaleString()} total observations &middot; weighted MAE pools daily values by observation count`;
     }
 
     // === chart: precip drift (spaghetti of precip probability) ===

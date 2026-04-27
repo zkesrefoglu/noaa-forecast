@@ -1,4 +1,8 @@
-# Vendor Capture — Work Machine Runbook
+# Vendor Capture — Work Machine Runbook (LEGACY)
+
+> **DEPRECATED as of 2026-04-27.** The capture is now scheduled on `stpwsvcritfil04` (the WGL file server). See [`docs/server-capture-runbook.md`](server-capture-runbook.md) for the going-forward setup.
+>
+> This document is preserved for historical context and as a fallback procedure if the server task ever needs to be replaced with a laptop-based capture (don't recommend it). The fallback in routine operation is **manually saving the file from Outlook**, since the CSV is emailed to Ziya on every SQL run.
 
 **Run this on the work laptop (`ke11982`) while connected to the corporate network (office or VPN).**
 **Do NOT run from home X1 / RDP session — the UNC share is only reachable from corp.**

@@ -39,15 +39,15 @@ A typical file has ~10k rows: ~30 days of historical actuals plus ~14 days of fo
 
 ## Two ingestion paths
 
-**Path A — going-forward (planned):** scheduled task on `stpwsvcritfil04` itself, fires at 9:00 AM after the morning SQL job lands the CSV. Copies the file from local disk into the cloned repo, commits, pushes. Pending GitHub-from-server access confirmation. See `docs/vendor-capture-runbook.md`.
+**Path A — going-forward (DEPLOYED 2026-04-26).** Scheduled task `ZKE_NOAA_Vendor_Capture` on `stpwsvcritfil04`, fires daily at 9:00 AM. Runs as `WGLCO_DOMAIN\xml0001` (Ziya's account on the server, distinct from his work-laptop account `WGLENERGY\ke11982`). Copies the morning CSV from `\\stpwsvcritfil04\WGES-Databases\Reports\DailyHourlyTemp\ops-query-in-out_hourly_temp.csv` into the cloned repo at `\\stpwsvcritfil04\WGES-Databases\OPSJobs\weather\noaa-forecast\`, commits, pushes. First force-run smoke test on 2026-04-26 succeeded (`LastTaskResult=0`, file `2026-04-26.csv` committed and pushed). See `docs/server-capture-runbook.md` for the full setup procedure.
 
-**Path B — historical backfill (one-time, completed 2026-04-26):** every morning + afternoon CSV is also emailed to Ziya as an attachment with subject `Hourly_Temperatures_Report (NNNN rows found)`. The Outlook macro `scripts/outlook_backfill_vendor.bas` extracted ~12 months of attachments from his Inbox in 3 minutes. Saved both AM and PM versions to disk, AM-only goes into `data/vendor/<date>.csv` (PM kept locally for future analysis but not committed).
+**Path B — historical backfill (one-time, completed 2026-04-26).** Every morning + afternoon CSV is also emailed to Ziya as an attachment with subject `Hourly_Temperatures_Report (NNNN rows found)`. The Outlook macro `scripts/outlook_backfill_vendor.bas` extracted ~12 months of attachments from his Inbox in 3 minutes. Saved both AM and PM versions to disk, AM-only goes into `data/vendor/<date>.csv` (PM kept locally for future analysis but not committed). Final commit added 669 unique CSVs covering 2025-04-25 → 2026-04-25.
 
-The email path is also the safety net if Path A breaks: as long as Ziya stays on the distribution list, the data continues arriving in his Inbox regardless of what the server-side capture does.
+**Path B is also the live-operation safety net.** If Path A's task ever breaks (server reboot, credential expired, WGL infrastructure change), the file continues arriving in Ziya's Outlook every morning. Manual save → commit recovers any missed day.
 
 ## What's done
 
-- **Capture script (`scripts/capture_vendor.ps1`):** UNC path filled in, path-agnostic via `$PSScriptRoot`. Originally intended for the work laptop; superseded by the planned server task but kept in the repo as a reference / fallback.
+- **Capture script (`scripts/capture_vendor.ps1`):** UNC path filled in, path-agnostic via `$PSScriptRoot`. Now deployed under the `ZKE_NOAA_Vendor_Capture` scheduled task on `stpwsvcritfil04`. Originally drafted for the work laptop — that variant is documented in the deprecated `docs/vendor-capture-runbook.md` and is preserved only as a fallback procedure.
 - **Outlook backfill macro (`scripts/outlook_backfill_vendor.bas`):** extracted 669 unique CSVs (360 AM, 309 PM) covering 2025-04-25 → 2026-04-25.
 - **Historical backfill orchestrator (`scripts/historical_backfill.py`):** loops over a date range, pulls ASOS truth from Iowa Mesonet, runs `score_daily.py` per date. Resumable, idempotent, ~21 sec per ASOS pull. Took ~2.6h to backfill 365 days.
 - **Scorer hook (`score_daily.py._load_vendor`):**

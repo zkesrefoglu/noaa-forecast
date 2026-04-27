@@ -14,6 +14,7 @@ Every landmine this project has stepped on, with the fix. Read this BEFORE blami
 8. ASOS parquet timestamp precision is `us`, not `ns`
 9. Small-sample MAE is not a metric; it's a rumor
 10. Vendor `Q_TEMP` is mixed units: source=1 is Fahrenheit, source=4 is Celsius
+11. PowerShell ExecutionPolicy blocks unsigned scripts from network shares
 
 ---
 
@@ -186,3 +187,34 @@ df["forecast_tmpf"] = q_celsius * 9.0 / 5.0 + 32.0
 - Don't assume the WGL data dictionary is authoritative. The vendor-integration.md doc said "Q_TEMP — temperature, °F" — it was wrong. Verify by spot-checking a hot summer afternoon in DC: if you see values like 30, that's Celsius; 86 is Fahrenheit.
 - Don't fix this by converting `Q_TEMP` upstream of the source filter. Source=1 (historical) is genuinely in Fahrenheit and shouldn't be converted. The conversion lives AFTER the source=4 filter for that reason.
 - Don't trust this if WGL changes the SQL query that produces the file. If the SQL ever joins different upstream tables or changes units, this assumption breaks silently. Add a sanity check: if vendor MAE jumps to 40+°F overnight, suspect a unit change before suspecting the model.
+
+---
+
+## 11. PowerShell ExecutionPolicy blocks unsigned scripts from network shares
+
+**Symptom:** Running `.\scripts\capture_vendor.ps1` directly on the server produces:
+
+```
+.\scripts\capture_vendor.ps1 cannot be loaded. The file ... is not digitally signed.
+You cannot run this script on the current system. SecurityError: PSSecurityException
+UnauthorizedAccess
+```
+
+**Cause:** Windows treats files from network paths (UNC shares like `\\stpwsvcritfil04\...`) as untrusted by default, even when the path resolves to the same machine. The default `ExecutionPolicy` (typically `RemoteSigned` on servers) refuses to run unsigned scripts from these locations.
+
+**Fix for manual smoke tests:**
+
+```powershell
+# One-shot bypass for a single script invocation:
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\capture_vendor.ps1
+
+# Or set bypass for the current shell only (process scope):
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\scripts\capture_vendor.ps1
+```
+
+**Fix for the scheduled task:** the runbook already passes `-ExecutionPolicy Bypass` in the task's `-Argument` string. The task runs without policy interference, so this only bites manual testing — but it bites the FIRST manual test, which is exactly when you don't want surprises.
+
+**Don't:** flip the system-wide ExecutionPolicy to Bypass or Unrestricted. That weakens server security globally for one script. Process-scope bypass during testing is enough.
+
+**How this was caught:** discovered 2026-04-27 during the first server-side smoke test of `capture_vendor.ps1`. Three attempts before the bypass was applied — easy hour to lose if you don't recognize the message. Now you have.

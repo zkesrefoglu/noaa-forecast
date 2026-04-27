@@ -11,6 +11,8 @@ Copy-paste procedures for the common operational tasks. Read the procedure match
 5. Check data freshness / is the pipeline alive?
 6. Re-score everything after a scoring logic change
 7. Inspect scoring output ad hoc (DuckDB)
+8. Bulk historical backfill (date range, ASOS + scoring)
+9. Recover a missed vendor day from email
 
 ---
 
@@ -179,3 +181,65 @@ ORDER BY mae_7d
 ```
 
 For Ziya's weekly deliverable, the 24-48h bucket is the most important — that's the leadtime the vendor is paid to nail.
+
+---
+
+## 8. Bulk historical backfill (date range, ASOS + scoring)
+
+**Context:** new vendor data arrived (e.g. via email recovery), or the scoring logic changed enough that you want a full re-score, or you're spinning up scoring against historical vendor captures for the first time.
+
+**Procedure:**
+
+```powershell
+cd C:\Users\Ziya\Documents\GitHub\noaa-forecast
+python scripts/historical_backfill.py --start 2025-04-25 --end 2026-04-24
+```
+
+Per-date behavior:
+- ASOS: pulls Iowa Mesonet truth ONLY if `data/asos/<date>.parquet` doesn't already exist. Idempotent.
+- Scoring: always runs (the scorer upserts by `(asos_date, zone, source, bucket)`, so re-running refreshes cleanly).
+
+Runtime: ~2.5h on a fully-fresh range (ASOS rate-limited at 3s/station/day). ~30 min if ASOS already exists and only scoring runs (e.g. after a `score_daily.py` patch).
+
+The orchestrator catches per-date failures and continues — one bad day doesn't kill the batch. End-of-run summary lists ASOS pulls / skips / failures and scoring successes / failures with the failing dates listed inline.
+
+**After it finishes:**
+```powershell
+git add data/asos/ data/scores/
+git commit -m "backfill: <range> (ASOS + scores)"
+git push
+```
+
+**Don't:** run this inside a GitHub Actions workflow. It calls `asos_truth.py` 365+ times and would run afoul of Iowa Mesonet rate limits in a CI context. Local execution only.
+
+**Don't:** start the range earlier than 2026-04-19 expecting NOAA scores. NOAA snapshots only exist from that date forward (when the renamed zones went live). Vendor scoring still works for earlier dates — produces vendor-only rows, no NOAA-vs-vendor comparison.
+
+---
+
+## 9. Recover a missed vendor day from email
+
+**Context:** the server scheduled task `ZKE_NOAA_Vendor_Capture` failed to run on a particular day (server reboot, credential expired, network hiccup). The day's CSV is missing from `data/vendor/`.
+
+**Why this is recoverable:** the WGL SQL job emails the CSV as an attachment to a distribution list including Ziya on every run (8:39 AM and 3:39 PM). Outlook keeps it.
+
+**Procedure for a single missed day (manual):**
+
+1. Open Outlook desktop.
+2. Search Inbox for `subject:Hourly_Temperatures_Report` filtered to the missed date.
+3. The morning email arrived ~8:39 AM. Open that one (not the 3:39 PM one — afternoon reflects different upstream info).
+4. Save the attached CSV: right-click attachment → Save As → `<missed-date>.csv` (e.g. `2026-05-12.csv`).
+5. Drop into `C:\Users\Ziya\Documents\GitHub\noaa-forecast\data\vendor\`.
+6. `git add data/vendor/<missed-date>.csv && git commit -m "vendor: manual recovery for <date>" && git push`.
+
+**Procedure for multiple missed days (bulk):**
+
+Use the macro at `scripts/outlook_backfill_vendor.bas`. Same as the original 2026-04-26 backfill — saves AM and PM CSVs to `Desktop\vendor_backfill\` named by date. Filter to the dates you need, copy AM versions only into `data/vendor/`, commit + push.
+
+**If the server task is silently failing repeatedly:** inspect on `stpwsvcritfil04`:
+
+```powershell
+Get-ScheduledTaskInfo -TaskName "ZKE_NOAA_Vendor_Capture" |
+    Select-Object LastRunTime, LastTaskResult, NumberOfMissedRuns
+```
+
+`LastTaskResult` non-zero or stale `LastRunTime` → open Task Scheduler GUI → History tab for full diagnostics. See `docs/server-capture-runbook.md` troubleshooting section.

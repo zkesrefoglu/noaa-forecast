@@ -101,12 +101,21 @@ You should see `LegacyGeneric:target=git:https://github.com` or similar. Token i
 
 ## 3. Manual smoke test of capture_vendor.ps1
 
-Before installing the scheduled task, verify the script works end-to-end as your user:
+Before installing the scheduled task, verify the script works end-to-end as your user.
+
+**Important:** the script lives on a UNC path (`\\stpwsvcritfil04\...`), which Windows treats as untrusted by default. Calling it directly will fail with a `PSSecurityException: UnauthorizedAccess` error. Use one of these two forms instead:
 
 ```powershell
+# Option A: one-shot bypass via powershell.exe (matches what the scheduled task does)
 Set-Location $RepoPath
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\capture_vendor.ps1
+
+# Option B: bypass the current shell session, then run normally
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\scripts\capture_vendor.ps1
 ```
+
+Process-scope bypass only affects this PowerShell window — exits when you close it. Doesn't change system-wide security.
 
 **Expected output (roughly):**
 

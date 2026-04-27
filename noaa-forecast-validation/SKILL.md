@@ -23,8 +23,8 @@ Three independent streams land in the repo, then get joined at scoring time.
 | (forecasts)           |     | (forecasts)      |     | (truth)          |
 +----------+------------+     +--------+---------+     +--------+---------+
            |                           |                        |
-           | hourly :07 UTC            | 10 AM ET scheduled     | daily 08:00 UTC
-           | GitHub Actions            | task on work machine   | GitHub Actions
+           | hourly :07 UTC            | 9 AM ET scheduled      | daily 08:00 UTC
+           | GitHub Actions            | task on stpwsvcritfil04| GitHub Actions
            v                           v                        v
   data/<ZONE>/<DATE>/             data/vendor/            data/asos/
    <snapshot>.parquet              <DATE>.csv              <DATE>.parquet
@@ -68,18 +68,25 @@ noaa-forecast/
   score_daily.py             # Join + MAE scorer (daily)
   query.py                   # Ad-hoc DuckDB helper
   build_dashboard.py         # HTML dashboard generator
+  dashboard_template.html    # HTML template with zone picker + chart sections
   zones.csv                  # Zone config (the seven above)
   requirements.txt
   scripts/
-    capture_vendor.ps1       # Work-machine PowerShell script (scheduled task)
+    capture_vendor.ps1            # Daily capture (deployed to stpwsvcritfil04)
+    historical_backfill.py        # One-time orchestrator: ASOS pull + scoring loop over a date range
+    outlook_backfill_vendor.bas   # VBA macro: extract historical vendor CSVs from Outlook
   .github/workflows/
     noaa.yml                 # hourly :07 NOAA pull
     asos-truth.yml           # daily 08:00 UTC ASOS pull
     score-daily.yml          # daily 09:00 UTC scoring
+  docs/
+    index.html                    # Generated dashboard (GitHub Pages)
+    server-capture-runbook.md     # Vendor capture setup on stpwsvcritfil04
+    vendor-capture-runbook.md     # DEPRECATED laptop runbook (kept as fallback)
   data/
     <ZONE>/<YYYY-MM-DD>/<snapshot_ts>.parquet   # NOAA snapshots
     asos/<YYYY-MM-DD>.parquet                   # ASOS truth
-    vendor/<YYYY-MM-DD>.csv                     # vendor capture (once wired)
+    vendor/<YYYY-MM-DD>.csv                     # vendor capture (committed)
     scores/
       hourly_detail_<YYYY-MM-DD>.parquet        # per-date forecast+truth detail
       daily_by_bucket.parquet                   # accumulating summary
@@ -105,7 +112,7 @@ This skill keeps SKILL.md tight. Details live in `references/`:
 - **`references/zones.md`** — Full zone table with context, exclusion reasoning, coordinate source, history of the rename from PPL/PCO/FEO/NJ to airport codes.
 - **`references/runbooks.md`** — Copy-paste procedures for common tasks: backfill a date, manually trigger a workflow, add or remove a zone, investigate a suspicious MAE, check data freshness.
 - **`references/gotchas.md`** — Known failure modes and fixes: Iowa Mesonet 429s, empty-frame dtype downcast, can't-score-old-dates, Cowork mount sync, PJM hour-ending convention, America/New_York to UTC for vendor data.
-- **`references/vendor-integration.md`** — State of play on vendor capture: PowerShell script written, UNC path pending, how to finish wiring once the path arrives.
+- **`references/vendor-integration.md`** — State of play on vendor capture: deployed scheduled task, schema, mixed-units gotcha, ingestion paths (server task + Outlook backfill), and the actual findings table from the first scoring run.
 
 **Read the reference that matches the user's request before acting.** If you don't know which one applies, skim the table of contents above and pick the closest match. When in doubt, read `runbooks.md` — most operational questions are covered there.
 
@@ -119,22 +126,24 @@ Ziya runs ZKE Solutions. He wants direct, concise, brutally honest output. Prefe
 - **Respect his intelligence.** Explain the why, not just the how. Don't pad.
 - **CSVs and markdown for deliverables.** Not JSON dumps. Not fluffy prose.
 
-## The current state of the project (as of the skill creation)
+## The current state of the project (last updated 2026-04-27)
 
 **Working:**
 - NOAA puller is live, hourly at :07 UTC, writes seven zones.
 - ASOS truth puller is live, daily at 08:00 UTC, with rate-limit retries.
 - Scorer is live, daily at 09:00 UTC, produces per-zone per-bucket MAE.
-- Dashboard (oscilloscope aesthetic) reads live data via DuckDB.
+- Dashboard (oscilloscope aesthetic) reads live data via DuckDB. Includes the `Forecast Accuracy vs Reality` chart added 2026-04-26 — vendor & NOAA MAE per leadtime bucket per zone.
+- **Vendor capture is deployed.** Scheduled task `ZKE_NOAA_Vendor_Capture` on `stpwsvcritfil04`, fires daily at 9:00 AM, runs as `WGLCO_DOMAIN\xml0001`. Repo cloned at `\\stpwsvcritfil04\WGES-Databases\OPSJobs\weather\noaa-forecast`. First force-run smoke test 2026-04-26 succeeded.
+- **One year of historical vendor data is in.** Backfilled 2026-04-26 from Ziya's Outlook archive (~669 unique CSVs covering 2025-04-25 → 2026-04-25) using `scripts/outlook_backfill_vendor.bas`. ASOS truth backfilled for the same range; scoring run produced ~7,500 vendor scored bucket-rows.
 
 **Pending:**
-- **Vendor capture:** PowerShell script is written (`scripts/capture_vendor.ps1`). Line 23 has a placeholder UNC path. Once Ziya provides the real path from his work machine, the script installs as a Windows Task Scheduler job at 10 AM local. See `references/vendor-integration.md`.
-- **Weekly management report:** not started. Needs to read `data/scores/daily_by_bucket.parquet` and produce a clean NOAA-vs-vendor pivot per zone per bucket. Only meaningful once a few days of vendor captures exist.
+- **Weekly management report:** not started, but data foundation is ready. Findings from initial run: vendor wins 4 of 7 zones at the operationally-critical 24-48h leadtime, with a larger margin (avg 0.92°F) than NOAA's wins (avg 0.31°F). DCA is the outlier — vendor's worst zone, also WGL's home market. See `references/vendor-integration.md` for the full table.
 
 **Don't do until asked:**
-- Don't score dates before the zone rename went live (anything before 2026-04-19 UTC). There are no NOAA snapshots with the current zone names for those dates.
 - Don't add zones without explicit direction — the seven above are what the business cares about.
-- Don't "improve" the vendor capture strategy without asking. The Java process writing to a network share at 8:30 AM is a given, not a constraint to route around.
+- Don't "improve" the vendor capture strategy without asking. The current chain (WGL Java/SQL → server scheduled task → repo → GitHub) works and is verified end-to-end. The fallback (Outlook attachment recovery) is also in place.
+- Don't run `capture_vendor.ps1` from the work laptop. Server `stpwsvcritfil04` is the only writer to `data/vendor/<date>.csv` going forward. Two writers = git conflicts.
+- Don't trust `Q_TEMP` as Fahrenheit. It's Celsius for `C_WEATHER_SOURCE=4` (the forecast rows). The scorer converts at load time. See `gotchas.md` #10.
 
 ## When things break, the fix is usually one of these
 
@@ -142,3 +151,6 @@ Ziya runs ZKE Solutions. He wants direct, concise, brutally honest output. Prefe
 2. **Scorer merge ValueError on dtype mismatch** — empty vendor frame is downcasting the concat. Fixed in the current code by filtering empties and re-casting before merge. If it reappears, check `references/gotchas.md`.
 3. **noaa rows=0 for some date** — either no snapshots exist for that date (pipeline wasn't alive yet), or the date is outside the 9-day window `_load_noaa` scans. Pick a date the pipeline was actually running.
 4. **Cowork bash mount doesn't show new commits** — mount doesn't sync real-time after GitHub Actions writes. Use the Read tool with Windows paths, or have the user verify via GitHub web UI.
+5. **Vendor MAE suddenly looks like ~45°F across all zones** — unit drift. Source=4 should be Celsius, scorer converts to Fahrenheit. If the SQL job changed and source=4 is now in F (or another unit), the conversion is double-applying or wrong. See `gotchas.md` #10.
+6. **Vendor capture script `cannot be loaded ... not digitally signed`** — PowerShell ExecutionPolicy blocking unsigned scripts on the network share. Use `-ExecutionPolicy Bypass` for manual runs; the scheduled task already includes it. See `gotchas.md` #11.
+7. **Vendor capture missed a day** — first check the email. The CSV is also emailed to Ziya as an attachment on every SQL run. Manual save to `data/vendor/<date>.csv` recovers the day. The Outlook backfill macro (`scripts/outlook_backfill_vendor.bas`) handles bulk recovery if needed.

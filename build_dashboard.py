@@ -115,11 +115,30 @@ def _zone_payload(con: duckdb.DuckDBPyConnection, zone: str) -> dict:
         [zone],
     ).fetchdf()
 
+    # Heatmap shows "delta vs latest" for each (snapshot, forecast_hour) cell.
+    # Only forecast hours the *latest* snapshot covers can have a meaningful
+    # delta -- anything outside [latest_snap.min_valid, latest_snap.max_valid]
+    # has no "latest" to compare against and renders as empty rows.
+    # Clamping y-axis to the latest snapshot's forecast window also implicitly
+    # prunes old snapshot columns whose forecast window doesn't overlap
+    # "now -> now+7d", so the chart fills the panel.
     heatmap_df = con.execute(
         """
+        WITH latest_snap AS (
+            SELECT MAX(snapshot_ts_utc) AS ts
+            FROM fh
+            WHERE location_name = ?
+        ),
+        latest_valids AS (
+            SELECT DISTINCT valid_ts_utc
+            FROM fh, latest_snap
+            WHERE location_name = ?
+              AND snapshot_ts_utc = latest_snap.ts
+        )
         SELECT snapshot_ts_utc, valid_ts_utc, temp_f
         FROM fh
         WHERE location_name = ?
+          AND valid_ts_utc IN (SELECT valid_ts_utc FROM latest_valids)
           AND valid_ts_utc IN (
               SELECT valid_ts_utc FROM fh
               WHERE location_name = ?
@@ -128,7 +147,7 @@ def _zone_payload(con: duckdb.DuckDBPyConnection, zone: str) -> dict:
           )
         ORDER BY valid_ts_utc, snapshot_ts_utc
         """,
-        [zone, zone],
+        [zone, zone, zone, zone],
     ).fetchdf()
 
     stability_df = con.execute(

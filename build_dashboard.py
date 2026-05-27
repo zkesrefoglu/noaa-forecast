@@ -27,6 +27,13 @@ DATA_GLOB = "data/**/*.parquet"
 OUT_PATH = Path("docs/index.html")
 TEMPLATE_PATH = Path("dashboard_template.html")
 
+# The spaghetti plot embeds raw (snapshot x forecast-hour) rows inline as JSON.
+# Embedding the FULL snapshot history grows docs/index.html without bound -- it
+# hit GitHub's 100MB hard push limit on 2026-05-27. A spaghetti plot only needs
+# recent snapshots to be legible, so cap it to a rolling window. Other payloads
+# are aggregates or bounded to the latest snapshot window and don't need this.
+SPAGHETTI_WINDOW_DAYS = 7
+
 # Anything under these prefixes is not a per-zone snapshot parquet.
 # `data/asos/` is ASOS truth, `data/scores/` is the scorer's output. Including
 # them in the union_by_name view would blow up because their schemas don't
@@ -102,7 +109,7 @@ def _zone_payload(con: duckdb.DuckDBPyConnection, zone: str) -> dict:
     ).fetchdf()
 
     spaghetti_df = con.execute(
-        """
+        f"""
         SELECT
             snapshot_ts_utc,
             valid_ts_utc,
@@ -110,9 +117,14 @@ def _zone_payload(con: duckdb.DuckDBPyConnection, zone: str) -> dict:
             precip_prob_pct
         FROM fh
         WHERE location_name = ?
+          AND snapshot_ts_utc >= (
+              SELECT MAX(snapshot_ts_utc) - INTERVAL {SPAGHETTI_WINDOW_DAYS} DAY
+              FROM fh
+              WHERE location_name = ?
+          )
         ORDER BY snapshot_ts_utc, valid_ts_utc
         """,
-        [zone],
+        [zone, zone],
     ).fetchdf()
 
     # Heatmap shows "delta vs latest" for each (snapshot, forecast_hour) cell.
